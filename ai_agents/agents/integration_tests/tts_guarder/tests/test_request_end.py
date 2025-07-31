@@ -31,7 +31,6 @@ class DumpTester(AsyncExtensionTester):
         self,
         session_id: str = "test_dump_session_123",
         text: str = "",
-        tts_extension_dump_folder: str = "",
     ):
         super().__init__()
         print("=" * 80)
@@ -46,8 +45,7 @@ class DumpTester(AsyncExtensionTester):
 
         self.session_id: str = session_id
         self.text: str = text
-        self.dump_file_name = f"tts_dump_{self.session_id}.pcm"
-        self.tts_extension_dump_folder = tts_extension_dump_folder
+        self.count_audio_end = 0
 
     async def _send_finalize_signal(self, ten_env: AsyncTenEnvTester) -> None:
         """Send tts_finalize signal to trigger finalization."""
@@ -78,12 +76,12 @@ class DumpTester(AsyncExtensionTester):
         ten_env.log_info("Starting TTS invalid required params test")
         await self._send_tts_text_input(ten_env, self.text)
 
-    async def _send_tts_text_input(self, ten_env: AsyncTenEnvTester, text: str) -> None:
+    async def _send_tts_text_input(self, ten_env: AsyncTenEnvTester, text: str, request_num: int = 1) -> None:
         """Send tts text input to TTS extension."""
         ten_env.log_info(f"Sending tts text input: {text}")
         tts_text_input_obj = Data.create("tts_text_input")
         tts_text_input_obj.set_property_string("text", text)
-        tts_text_input_obj.set_property_string("request_id", "test_dump_request_id_1")
+        tts_text_input_obj.set_property_string("request_id", "test_dump_request_id_"+str(request_num))
         tts_text_input_obj.set_property_bool("text_input_end", True)
         metadata = {
             "session_id": "test_dump_session_123",
@@ -148,58 +146,33 @@ class DumpTester(AsyncExtensionTester):
         if name == "error":
             json_str, _ = data.get_property_to_json("")
             ten_env.log_info(f"Received error data: {json_str}")
-
-            self._stop_test_with_error(ten_env, f"Received error data")
-            return
-        elif name == "tts_audio_end":
-            ten_env.log_info("✅ TTS audio end received, start compare dump file")
-            self._compare_dump_file(ten_env)
-            return
-    
-    def _compare_dump_file(self, ten_env: AsyncTenEnvTester) -> None:
-        """Compare dump file with expected dump file."""
-        if not os.path.exists(self.dump_file_name):
-            self._stop_test_with_error(ten_env, f"test extension dump file not found: {self.dump_file_name}")
-            return
-        else:
-            expected_dump_file = os.path.join(self.tts_extension_dump_folder, os.listdir(self.tts_extension_dump_folder)[0])
-            if not os.path.exists(expected_dump_file):
-                self._stop_test_with_error(ten_env, f"Expected dump file not found: {expected_dump_file}")
-                return
-            else:
+            code, _ = data.get_property_int("code")
+            ten_env.log_info(f"Received error data: {code}")
+            if code == 1000:
+                ten_env.log_info("✅ TTS invalid required params test passed with final result")
                 ten_env.stop_test()
-            #todo: test dump is large than tts extension
-            # else:
-            #     with open(self.dump_file_name, "rb") as f1, open(expected_dump_file, "rb") as f2:
-            #         if f1.read() == f2.read():
-            #             ten_env.log_info("✅ Dump file comparison successful")
-            #         else:
-            #             self._stop_test_with_error(ten_env, "Dump file comparison failed")
-        
+            else:
+                self._stop_test_with_error(ten_env, f"Received wrong error code: {code}")
+                return
+
+        elif name == "tts_audio_end":
+            if self.count_audio_end == 0:
+                self.count_audio_end += 1
+                await self._send_tts_text_input(ten_env, "second request id" + self.text)
+                return
+                
         
     @override
     async def on_audio_frame(self, ten_env: AsyncTenEnvTester, audio_frame: AudioFrame) -> None:
         """Handle received audio frame from TTS extension."""
-        buf = audio_frame.lock_buf()
-        with open(self.dump_file_name, "ab") as f:
-            f.write(buf)
-        audio_frame.unlock_buf(buf)
-        self.audio_frame = audio_frame
-
+        pass
 
     @override
     async def on_stop(self, ten_env: AsyncTenEnvTester) -> None:
         """Clean up resources when test stops."""
-        ten_env.log_info("Test stopped")
-        _delete_dump_file(self.tts_extension_dump_folder)
 
-def _delete_dump_file(dump_path: str) -> None:
-    for file_path in glob.glob(os.path.join(dump_path, "*")):
-            if os.path.isfile(file_path):
-                os.remove(file_path)
-            elif os.path.isdir(file_path):
-                import shutil
-                shutil.rmtree(file_path)
+        ten_env.log_info("Test stopped")
+
 
 def test_dump(extension_name: str, config_dir: str) -> None:
     """Verify TTS result dump."""
@@ -219,18 +192,14 @@ def test_dump(extension_name: str, config_dir: str) -> None:
 
     # Log test configuration
     print(f"Using test configuration: {config}")
-    if not os.path.exists(config["dump_path"]):
-        os.makedirs(config["dump_path"])
-    else:
-        # 删除目录下的所有文件
-        _delete_dump_file(config["dump_path"])
+    config["dump"] = False
+
 
 
     # Create and run tester
     tester = DumpTester(
         session_id="test_dump_session_123",
         text="hello world, hello agora, hello shanghai, nice to meet you!",
-        tts_extension_dump_folder=config["dump_path"]
     )
 
     tester.set_test_mode_single(extension_name, json.dumps(config))

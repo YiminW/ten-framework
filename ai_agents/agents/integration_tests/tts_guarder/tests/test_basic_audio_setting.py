@@ -21,8 +21,10 @@ import asyncio
 import os
 import glob
 
-TTS_DUMP_CONFIG_FILE="property_dump.json"
-
+TTS_BASIC_AUDIO_SETTING_CONFIG_FILE1="property_basic_audio_setting1.json"
+TTS_BASIC_AUDIO_SETTING_CONFIG_FILE2="property_basic_audio_setting2.json"
+CASE1_SAMPLE_RATE=0
+CASE2_SAMPLE_RATE=0
 
 class DumpTester(AsyncExtensionTester):
     """Test class for TTS extension dump"""
@@ -31,23 +33,28 @@ class DumpTester(AsyncExtensionTester):
         self,
         session_id: str = "test_dump_session_123",
         text: str = "",
-        tts_extension_dump_folder: str = "",
+        request_id: int = 1,
+        test_name: str = "default",
     ):
         super().__init__()
         print("=" * 80)
-        print("🧪 TEST CASE: Dump TTS Test")
+        print(f"🧪 TEST CASE: {test_name}")
         print("=" * 80)
         print(
-            "📋 Test Description: Validate TTS result dump"
+            "📋 Test Description: Validate TTS sample rate settings"
         )
         print("🎯 Test Objectives:")
-        print("   - Verify dump is generated")
+        print("   - Verify different sample rates for different configs")
         print("=" * 80)
 
         self.session_id: str = session_id
         self.text: str = text
         self.dump_file_name = f"tts_dump_{self.session_id}.pcm"
-        self.tts_extension_dump_folder = tts_extension_dump_folder
+        self.count_audio_end = 0
+        self.request_id: int = request_id
+        self.sample_rate: int = 0  # 存储当前测试的 sample_rate
+        self.test_name: str = test_name
+        self.audio_frame_received: bool = False  # 标记是否已接收到音频帧
 
     async def _send_finalize_signal(self, ten_env: AsyncTenEnvTester) -> None:
         """Send tts_finalize signal to trigger finalization."""
@@ -78,12 +85,12 @@ class DumpTester(AsyncExtensionTester):
         ten_env.log_info("Starting TTS invalid required params test")
         await self._send_tts_text_input(ten_env, self.text)
 
-    async def _send_tts_text_input(self, ten_env: AsyncTenEnvTester, text: str) -> None:
+    async def _send_tts_text_input(self, ten_env: AsyncTenEnvTester, text: str, request_num: int = 1) -> None:
         """Send tts text input to TTS extension."""
         ten_env.log_info(f"Sending tts text input: {text}")
         tts_text_input_obj = Data.create("tts_text_input")
         tts_text_input_obj.set_property_string("text", text)
-        tts_text_input_obj.set_property_string("request_id", "test_dump_request_id_1")
+        tts_text_input_obj.set_property_string("request_id", str(self.request_id))
         tts_text_input_obj.set_property_bool("text_input_end", True)
         metadata = {
             "session_id": "test_dump_session_123",
@@ -144,94 +151,74 @@ class DumpTester(AsyncExtensionTester):
     async def on_data(self, ten_env: AsyncTenEnvTester, data: Data) -> None:
         """Handle received data from TTS extension."""
         name: str = data.get_name()
+        ten_env.log_info(f"[{self.test_name}] Received data: {name}")
 
         if name == "error":
             json_str, _ = data.get_property_to_json("")
-            ten_env.log_info(f"Received error data: {json_str}")
+            ten_env.log_info(f"[{self.test_name}] Received error data: {json_str}")
 
             self._stop_test_with_error(ten_env, f"Received error data")
             return
         elif name == "tts_audio_end":
-            ten_env.log_info("✅ TTS audio end received, start compare dump file")
-            self._compare_dump_file(ten_env)
+            ten_env.log_info(f"[{self.test_name}] Received tts_audio_end")
+            # 只有在接收到音频帧后才退出测试
+            if self.audio_frame_received:
+                ten_env.log_info(f"[{self.test_name}] Audio frame received, stopping test")
+                ten_env.stop_test()
+            else:
+                ten_env.log_info(f"[{self.test_name}] Waiting for audio frame before stopping")
             return
     
-    def _compare_dump_file(self, ten_env: AsyncTenEnvTester) -> None:
-        """Compare dump file with expected dump file."""
-        if not os.path.exists(self.dump_file_name):
-            self._stop_test_with_error(ten_env, f"test extension dump file not found: {self.dump_file_name}")
-            return
-        else:
-            expected_dump_file = os.path.join(self.tts_extension_dump_folder, os.listdir(self.tts_extension_dump_folder)[0])
-            if not os.path.exists(expected_dump_file):
-                self._stop_test_with_error(ten_env, f"Expected dump file not found: {expected_dump_file}")
-                return
-            else:
-                ten_env.stop_test()
-            #todo: test dump is large than tts extension
-            # else:
-            #     with open(self.dump_file_name, "rb") as f1, open(expected_dump_file, "rb") as f2:
-            #         if f1.read() == f2.read():
-            #             ten_env.log_info("✅ Dump file comparison successful")
-            #         else:
-            #             self._stop_test_with_error(ten_env, "Dump file comparison failed")
-        
         
     @override
     async def on_audio_frame(self, ten_env: AsyncTenEnvTester, audio_frame: AudioFrame) -> None:
         """Handle received audio frame from TTS extension."""
-        buf = audio_frame.lock_buf()
-        with open(self.dump_file_name, "ab") as f:
-            f.write(buf)
-        audio_frame.unlock_buf(buf)
-        self.audio_frame = audio_frame
-
-
+        # 检查 sample_rate
+        sample_rate = audio_frame.get_sample_rate()
+        ten_env.log_info(f"[{self.test_name}] Received audio frame with sample_rate: {sample_rate}")
+        
+        # 标记已接收到音频帧
+        self.audio_frame_received = True
+        
+        # 存储当前测试的 sample_rate
+        if self.sample_rate == 0:
+            self.sample_rate = sample_rate
+            ten_env.log_info(f"✅ [{self.test_name}] First audio frame received with sample_rate: {sample_rate}")
+        else:
+            # 检查 sample_rate 是否一致
+            if self.sample_rate != sample_rate:
+                ten_env.log_warn(f"[{self.test_name}] Sample rate changed from {self.sample_rate} to {sample_rate}")
+            else:
+                ten_env.log_info(f"✅ [{self.test_name}] Sample rate consistent: {sample_rate}")
+        
+        
     @override
     async def on_stop(self, ten_env: AsyncTenEnvTester) -> None:
         """Clean up resources when test stops."""
+
         ten_env.log_info("Test stopped")
-        _delete_dump_file(self.tts_extension_dump_folder)
-
-def _delete_dump_file(dump_path: str) -> None:
-    for file_path in glob.glob(os.path.join(dump_path, "*")):
-            if os.path.isfile(file_path):
-                os.remove(file_path)
-            elif os.path.isdir(file_path):
-                import shutil
-                shutil.rmtree(file_path)
-
-def test_dump(extension_name: str, config_dir: str) -> None:
-    """Verify TTS result dump."""
 
 
-    # Get config file path
-    config_file_path = os.path.join(config_dir, TTS_DUMP_CONFIG_FILE)
-    if not os.path.exists(config_file_path):
-        raise FileNotFoundError(f"Config file not found: {config_file_path}")
-
+def run_single_test(extension_name: str, config_file: str, test_name: str, request_id: int) -> int:
+    """运行单个测试并返回 sample_rate"""
+    print(f"\n{'='*80}")
+    print(f"🚀 开始运行测试: {test_name}")
+    print(f"{'='*80}")
+    
     # Load config file
-    with open(config_file_path, "r") as f:
+    with open(config_file, "r") as f:
         config: dict[str, Any] = json.load(f)
-
-    # Expected test results
-
-
-    # Log test configuration
-    print(f"Using test configuration: {config}")
-    if not os.path.exists(config["dump_path"]):
-        os.makedirs(config["dump_path"])
-    else:
-        # 删除目录下的所有文件
-        _delete_dump_file(config["dump_path"])
-
 
     # Create and run tester
     tester = DumpTester(
-        session_id="test_dump_session_123",
+        session_id=f"test_session_{test_name}",
         text="hello world, hello agora, hello shanghai, nice to meet you!",
-        tts_extension_dump_folder=config["dump_path"]
+        request_id=request_id,
+        test_name=test_name
     )
+    
+    # Set the tts_extension_dump_folder for the tester
+    tester.tts_extension_dump_folder = config["dump_path"]
 
     tester.set_test_mode_single(extension_name, json.dumps(config))
     error = tester.run()
@@ -240,3 +227,47 @@ def test_dump(extension_name: str, config_dir: str) -> None:
     assert (
         error is None
     ), f"Test failed: {error.error_message() if error else 'Unknown error'}"
+    
+    # 返回测试获得的 sample_rate
+    return tester.sample_rate
+
+
+def test_sample_rate_comparison(extension_name: str, config_dir: str) -> None:
+    """比较两个不同配置文件的 sample_rate"""
+    print(f"\n{'='*80}")
+    print("🧪 TEST: Sample Rate Comparison")
+    print(f"{'='*80}")
+    print("📋 测试目标: 验证不同配置文件产生不同的 sample_rate")
+    print("🎯 预期结果: 两个测试的 sample_rate 应该不同")
+    print(f"{'='*80}")
+    
+    # 测试1: 使用配置文件1
+    config_file1 = os.path.join(config_dir, TTS_BASIC_AUDIO_SETTING_CONFIG_FILE1)
+    if not os.path.exists(config_file1):
+        raise FileNotFoundError(f"Config file not found: {config_file1}")
+    
+    sample_rate_1 = run_single_test(extension_name, config_file1, "16K_Test", 1)
+    
+    # 测试2: 使用配置文件2
+    config_file2 = os.path.join(config_dir, TTS_BASIC_AUDIO_SETTING_CONFIG_FILE2)
+    if not os.path.exists(config_file2):
+        raise FileNotFoundError(f"Config file not found: {config_file2}")
+    
+    sample_rate_2 = run_single_test(extension_name, config_file2, "32K_Test", 2)
+    
+    # 比较结果
+    print(f"\n{'='*80}")
+    print("📊 测试结果比较")
+    print(f"{'='*80}")
+    print(f"测试1 ({TTS_BASIC_AUDIO_SETTING_CONFIG_FILE1}): sample_rate = {sample_rate_1}")
+    print(f"测试2 ({TTS_BASIC_AUDIO_SETTING_CONFIG_FILE2}): sample_rate = {sample_rate_2}")
+    
+    if sample_rate_1 != sample_rate_2:
+        print(f"✅ 测试通过: 两个配置文件产生了不同的 sample_rate")
+        print(f"   差异: {abs(sample_rate_1 - sample_rate_2)} Hz")
+    else:
+        print(f"❌ 测试失败: 两个配置文件产生了相同的 sample_rate ({sample_rate_1})")
+        raise AssertionError(f"Expected different sample rates, but both are {sample_rate_1}")
+    
+    print(f"{'='*80}")
+

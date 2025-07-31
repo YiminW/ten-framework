@@ -28,6 +28,7 @@ from .bytedance_tts import (
 )
 from ten_runtime import (
     AsyncTenEnv,
+    Data,
 )
 
 
@@ -45,6 +46,8 @@ class BytedanceTTSDuplexExtension(AsyncTTS2BaseExtension):
         self.request_ttfb: int | None = None
         self.request_total_audio_duration: int | None = None
         self.response_msgs = asyncio.Queue[Tuple[int, bytes]]()
+        self.recorder_map: dict[str, PCMWriter] = {}  # 存储不同 request_id 对应的 PCMWriter
+        self.last_completed_request_id: str | None = None  # 最新完成的 request_id
 
     async def on_init(self, ten_env: AsyncTenEnv) -> None:
         try:
@@ -71,13 +74,6 @@ class BytedanceTTSDuplexExtension(AsyncTTS2BaseExtension):
                 # extract audio_params and additions from config
                 self.config.update_params()
 
-            self.recorder = PCMWriter(
-                os.path.join(
-                    self.config.dump_path, generate_file_name("agent_dump")
-                )
-                # based on request id
-            )
-
             await self._start_connection()
             self.msg_polling_task = asyncio.create_task(self._loop())
         except Exception as e:
@@ -96,6 +92,15 @@ class BytedanceTTSDuplexExtension(AsyncTTS2BaseExtension):
         await self._stop_connection()
         if self.msg_polling_task:
             self.msg_polling_task.cancel()
+        
+        # 关闭所有 PCMWriter
+        for request_id, recorder in self.recorder_map.items():
+            try:
+                await recorder.stop()
+                ten_env.log_info(f"Stopped PCMWriter for request_id: {request_id}")
+            except Exception as e:
+                ten_env.log_error(f"Error stopping PCMWriter for request_id {request_id}: {e}")
+        
         await super().on_stop(ten_env)
         ten_env.log_debug("on_stop")
 
@@ -110,8 +115,8 @@ class BytedanceTTSDuplexExtension(AsyncTTS2BaseExtension):
 
                 if event == EVENT_TTSResponse:
                     if audio_data is not None:
-                        if self.config.dump:
-                            asyncio.create_task(self.recorder.write(audio_data))
+                        if self.config.dump and self.current_request_id and self.current_request_id in self.recorder_map:
+                            asyncio.create_task(self.recorder_map[self.current_request_id].write(audio_data))
                         if (
                             self.request_start_ts is not None
                             and self.request_ttfb is None
@@ -231,6 +236,21 @@ class BytedanceTTSDuplexExtension(AsyncTTS2BaseExtension):
             self.ten_env.log_info(
                 f"KEYPOINT Requesting TTS for text: {t.text}, text_input_end: {t.text_input_end} request ID: {t.request_id}"
             )
+            
+            # 检查是否已经收到过这个 request_id 的 text_input_end=true
+            if self.last_completed_request_id and t.request_id == self.last_completed_request_id:
+                error_msg = f"Request ID {t.request_id} has already been completed (last completed: {self.last_completed_request_id})"
+                self.ten_env.log_warn(error_msg)
+                await self.send_tts_error(
+                    t.request_id,
+                    ModuleError(
+                        message=error_msg,
+                        module_name=ModuleType.TTS,
+                        code=ModuleErrorCode.NON_FATAL_ERROR,
+                        vendor_info=None,
+                    ),
+                )
+                return
             if t.request_id != self.current_request_id:
                 self.ten_env.log_info(
                     f"KEYPOINT New TTS request with ID: {t.request_id}"
@@ -242,6 +262,27 @@ class BytedanceTTSDuplexExtension(AsyncTTS2BaseExtension):
                 self.request_start_ts = datetime.now()
                 self.request_ttfb = None
                 self.request_total_audio_duration = 0
+                
+                # 为新 request_id 创建新的 PCMWriter，并清理旧的
+                if self.config.dump:
+                    # 清理旧的 PCMWriter（除了当前新的 request_id）
+                    old_request_ids = [rid for rid in self.recorder_map.keys() if rid != t.request_id]
+                    for old_rid in old_request_ids:
+                        try:
+                            await self.recorder_map[old_rid].stop()
+                            del self.recorder_map[old_rid]
+                            self.ten_env.log_info(f"Cleaned up old PCMWriter for request_id: {old_rid}")
+                        except Exception as e:
+                            self.ten_env.log_error(f"Error cleaning up PCMWriter for request_id {old_rid}: {e}")
+                    
+                    # 创建新的 PCMWriter
+                    if t.request_id not in self.recorder_map:
+                        dump_file_path = os.path.join(
+                            self.config.dump_path, 
+                            f"bytendance_dump_{t.request_id}.pcm"
+                        )
+                        self.recorder_map[t.request_id] = PCMWriter(dump_file_path)
+                        self.ten_env.log_info(f"Created PCMWriter for request_id: {t.request_id}, file: {dump_file_path}")
 
             if t.text.strip() != "":
                 await self.client.send_text(t.text)
@@ -249,6 +290,11 @@ class BytedanceTTSDuplexExtension(AsyncTTS2BaseExtension):
                 self.ten_env.log_info(
                     f"KEYPOINT finish session for request ID: {t.request_id}"
                 )
+                
+                # 更新最新完成的 request_id
+                self.last_completed_request_id = t.request_id
+                self.ten_env.log_info(f"Updated last completed request_id to: {t.request_id}")
+                
                 await self.client.finish_session()
 
                 self.stop_event = asyncio.Event()
@@ -290,6 +336,24 @@ class BytedanceTTSDuplexExtension(AsyncTTS2BaseExtension):
             )
             await self._reconnect()
 
+    async def on_data(self, ten_env: AsyncTenEnv, data: Data) -> None:  
+        name = data.get_name()
+        ten_env.log_info(f"11111111111111 Received data: {name}")
+        if name == "tts_flush":
+            ten_env.log_info(f"Received tts_flush data: {name}")
+            request_event_interval = int(
+                (
+                    datetime.now() - self.request_start_ts
+                ).total_seconds()
+                * 1000
+            )
+            await self.send_tts_audio_end(
+                self.current_request_id,
+                request_event_interval,
+                self.request_total_audio_duration,
+                self.current_turn_id,
+            )
+        await super().on_data(ten_env, data)
     def calculate_audio_duration(
         self,
         bytes_length: int,

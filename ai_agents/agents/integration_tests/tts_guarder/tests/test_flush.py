@@ -31,7 +31,6 @@ class DumpTester(AsyncExtensionTester):
         self,
         session_id: str = "test_dump_session_123",
         text: str = "",
-        tts_extension_dump_folder: str = "",
     ):
         super().__init__()
         print("=" * 80)
@@ -46,8 +45,8 @@ class DumpTester(AsyncExtensionTester):
 
         self.session_id: str = session_id
         self.text: str = text
-        self.dump_file_name = f"tts_dump_{self.session_id}.pcm"
-        self.tts_extension_dump_folder = tts_extension_dump_folder
+        self.count_audio_end = 0
+        self.flush_send = False
 
     async def _send_finalize_signal(self, ten_env: AsyncTenEnvTester) -> None:
         """Send tts_finalize signal to trigger finalization."""
@@ -83,7 +82,7 @@ class DumpTester(AsyncExtensionTester):
         ten_env.log_info(f"Sending tts text input: {text}")
         tts_text_input_obj = Data.create("tts_text_input")
         tts_text_input_obj.set_property_string("text", text)
-        tts_text_input_obj.set_property_string("request_id", "test_dump_request_id_1")
+        tts_text_input_obj.set_property_string("request_id", "test_flush_request_id_1")
         tts_text_input_obj.set_property_bool("text_input_end", True)
         metadata = {
             "session_id": "test_dump_session_123",
@@ -144,62 +143,43 @@ class DumpTester(AsyncExtensionTester):
     async def on_data(self, ten_env: AsyncTenEnvTester, data: Data) -> None:
         """Handle received data from TTS extension."""
         name: str = data.get_name()
+        print(f"11111111111 Received data: {name}")
 
         if name == "error":
-            json_str, _ = data.get_property_to_json("")
-            ten_env.log_info(f"Received error data: {json_str}")
-
-            self._stop_test_with_error(ten_env, f"Received error data")
+            code, _ = data.get_property_int("code")
+            ten_env.log_info(f"Received error data: {code}")
+            self._stop_test_with_error(ten_env, f"Received wrong error code: {code}")
             return
         elif name == "tts_audio_end":
-            ten_env.log_info("✅ TTS audio end received, start compare dump file")
-            self._compare_dump_file(ten_env)
-            return
-    
-    def _compare_dump_file(self, ten_env: AsyncTenEnvTester) -> None:
-        """Compare dump file with expected dump file."""
-        if not os.path.exists(self.dump_file_name):
-            self._stop_test_with_error(ten_env, f"test extension dump file not found: {self.dump_file_name}")
-            return
-        else:
-            expected_dump_file = os.path.join(self.tts_extension_dump_folder, os.listdir(self.tts_extension_dump_folder)[0])
-            if not os.path.exists(expected_dump_file):
-                self._stop_test_with_error(ten_env, f"Expected dump file not found: {expected_dump_file}")
-                return
-            else:
-                ten_env.stop_test()
-            #todo: test dump is large than tts extension
-            # else:
-            #     with open(self.dump_file_name, "rb") as f1, open(expected_dump_file, "rb") as f2:
-            #         if f1.read() == f2.read():
-            #             ten_env.log_info("✅ Dump file comparison successful")
-            #         else:
-            #             self._stop_test_with_error(ten_env, "Dump file comparison failed")
-        
+            json_str, _ = data.get_property_to_json("")
+            ten_env.log_info(f"Received tts_audio_end data: {json_str}")
+
+
+                
         
     @override
     async def on_audio_frame(self, ten_env: AsyncTenEnvTester, audio_frame: AudioFrame) -> None:
         """Handle received audio frame from TTS extension."""
-        buf = audio_frame.lock_buf()
-        with open(self.dump_file_name, "ab") as f:
-            f.write(buf)
-        audio_frame.unlock_buf(buf)
-        self.audio_frame = audio_frame
-
+        if not self.flush_send:
+            ten_env.log_info("Received audio frame, sending flush")
+            await self._send_flush(ten_env)
+            self.flush_send = True
 
     @override
     async def on_stop(self, ten_env: AsyncTenEnvTester) -> None:
         """Clean up resources when test stops."""
-        ten_env.log_info("Test stopped")
-        _delete_dump_file(self.tts_extension_dump_folder)
 
-def _delete_dump_file(dump_path: str) -> None:
-    for file_path in glob.glob(os.path.join(dump_path, "*")):
-            if os.path.isfile(file_path):
-                os.remove(file_path)
-            elif os.path.isdir(file_path):
-                import shutil
-                shutil.rmtree(file_path)
+        ten_env.log_info("Test stopped")
+
+    async def _send_flush(self, ten_env: AsyncTenEnvTester) -> None:
+        ten_env.log_info("Sending flush")
+        flush_data = Data.create("tts_flush")
+        flush_data.set_property_string("flush_id", "test_flush_request_id_1")
+        metadata = {
+            "session_id": "test_dump_session_123",
+        }
+        #flush_data.set_property_from_json("metadata", json.dumps(metadata))
+        await ten_env.send_data(flush_data)
 
 def test_dump(extension_name: str, config_dir: str) -> None:
     """Verify TTS result dump."""
@@ -219,18 +199,14 @@ def test_dump(extension_name: str, config_dir: str) -> None:
 
     # Log test configuration
     print(f"Using test configuration: {config}")
-    if not os.path.exists(config["dump_path"]):
-        os.makedirs(config["dump_path"])
-    else:
-        # 删除目录下的所有文件
-        _delete_dump_file(config["dump_path"])
+    config["dump"] = False
+
 
 
     # Create and run tester
     tester = DumpTester(
         session_id="test_dump_session_123",
-        text="hello world, hello agora, hello shanghai, nice to meet you!",
-        tts_extension_dump_folder=config["dump_path"]
+        text="Mr. and Mrs. Dursley, of number four, Privet Drive, were proud to say that they were perfectly normal, thank you very much. They were the last people you'd expect to be involved in anything strange or mysterious, because they just didn't hold with such nonsense.",
     )
 
     tester.set_test_mode_single(extension_name, json.dumps(config))
