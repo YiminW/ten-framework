@@ -21,7 +21,7 @@ import asyncio
 import os
 import glob
 
-TTS_DUMP_CONFIG_FILE="property_dump.json"
+TTS_DUMP_CONFIG_FILE="property_basic_audio_setting1.json"
 
 
 class DumpTester(AsyncExtensionTester):
@@ -31,7 +31,6 @@ class DumpTester(AsyncExtensionTester):
         self,
         session_id: str = "test_dump_session_123",
         text: str = "",
-        tts_extension_dump_folder: str = "",
     ):
         super().__init__()
         print("=" * 80)
@@ -46,8 +45,8 @@ class DumpTester(AsyncExtensionTester):
 
         self.session_id: str = session_id
         self.text: str = text
-        self.dump_file_name = f"tts_dump_{self.session_id}.pcm"
-        self.tts_extension_dump_folder = tts_extension_dump_folder
+        self.receive_metircs = False
+
 
     async def _send_finalize_signal(self, ten_env: AsyncTenEnvTester) -> None:
         """Send tts_finalize signal to trigger finalization."""
@@ -144,34 +143,20 @@ class DumpTester(AsyncExtensionTester):
     async def on_data(self, ten_env: AsyncTenEnvTester, data: Data) -> None:
         """Handle received data from TTS extension."""
         name: str = data.get_name()
+        json_str, _ = data.get_property_to_json("")
+        ten_env.log_info(f"test extension Received data {name} as: {json_str}")
 
         if name == "error":
-            json_str, _ = data.get_property_to_json("")
-            ten_env.log_info(f"Received error data: {json_str}")
-
             self._stop_test_with_error(ten_env, f"Received error data")
             return
-        
-        
-    @override
-    async def on_audio_frame(self, ten_env: AsyncTenEnvTester, audio_frame: AudioFrame) -> None:
-        """Handle received audio frame from TTS extension."""
-        pass
+        elif name == "metrics":
+            self.receive_metircs = True
+        elif name == "tts_audio_end":
+            if not self.receive_metircs:
+                self._stop_test_with_error(ten_env, f"no metrics data before tts_audio_end")
+            else:
+                ten_env.stop_test()
 
-
-    @override
-    async def on_stop(self, ten_env: AsyncTenEnvTester) -> None:
-        """Clean up resources when test stops."""
-        ten_env.log_info("Test stopped")
-        _delete_dump_file(self.tts_extension_dump_folder)
-
-def _delete_dump_file(dump_path: str) -> None:
-    for file_path in glob.glob(os.path.join(dump_path, "*")):
-            if os.path.isfile(file_path):
-                os.remove(file_path)
-            elif os.path.isdir(file_path):
-                import shutil
-                shutil.rmtree(file_path)
 
 def test_dump(extension_name: str, config_dir: str) -> None:
     """Verify TTS result dump."""
@@ -181,28 +166,17 @@ def test_dump(extension_name: str, config_dir: str) -> None:
     config_file_path = os.path.join(config_dir, TTS_DUMP_CONFIG_FILE)
     if not os.path.exists(config_file_path):
         raise FileNotFoundError(f"Config file not found: {config_file_path}")
+    
 
     # Load config file
     with open(config_file_path, "r") as f:
         config: dict[str, Any] = json.load(f)
-
-    # Expected test results
-
-
-    # Log test configuration
-    print(f"Using test configuration: {config}")
-    if not os.path.exists(config["dump_path"]):
-        os.makedirs(config["dump_path"])
-    else:
-        # 删除目录下的所有文件
-        _delete_dump_file(config["dump_path"])
 
 
     # Create and run tester
     tester = DumpTester(
         session_id="test_dump_session_123",
         text="hello world, hello agora, hello shanghai, nice to meet you!",
-        tts_extension_dump_folder=config["dump_path"]
     )
 
     tester.set_test_mode_single(extension_name, json.dumps(config))

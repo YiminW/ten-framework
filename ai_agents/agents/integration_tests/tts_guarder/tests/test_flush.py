@@ -47,6 +47,7 @@ class DumpTester(AsyncExtensionTester):
         self.text: str = text
         self.count_audio_end = 0
         self.flush_send = False
+        self.audio_end_received = False
 
     async def _send_finalize_signal(self, ten_env: AsyncTenEnvTester) -> None:
         """Send tts_finalize signal to trigger finalization."""
@@ -143,7 +144,7 @@ class DumpTester(AsyncExtensionTester):
     async def on_data(self, ten_env: AsyncTenEnvTester, data: Data) -> None:
         """Handle received data from TTS extension."""
         name: str = data.get_name()
-        print(f"11111111111 Received data: {name}")
+        ten_env.log_info(f"Received data: {name}")
 
         if name == "error":
             code, _ = data.get_property_int("code")
@@ -153,7 +154,19 @@ class DumpTester(AsyncExtensionTester):
         elif name == "tts_audio_end":
             json_str, _ = data.get_property_to_json("")
             ten_env.log_info(f"Received tts_audio_end data: {json_str}")
-
+            reason, _ = data.get_property_int("reason")
+            if reason != 2:
+                self._stop_test_with_error(ten_env, f"Received wrong tts_audio_end reason: {reason}")
+                return
+            else:
+                self.audio_end_received = True
+        elif name == "tts_flush_end":
+            if self.audio_end_received:
+                ten_env.stop_test()
+                return
+            else:
+                self._stop_test_with_error(ten_env, f"Received tts_flush_end before tts_audio_end")
+                return
 
                 
         
@@ -161,9 +174,10 @@ class DumpTester(AsyncExtensionTester):
     async def on_audio_frame(self, ten_env: AsyncTenEnvTester, audio_frame: AudioFrame) -> None:
         """Handle received audio frame from TTS extension."""
         if not self.flush_send:
+            self.flush_send = True
             ten_env.log_info("Received audio frame, sending flush")
             await self._send_flush(ten_env)
-            self.flush_send = True
+            
 
     @override
     async def on_stop(self, ten_env: AsyncTenEnvTester) -> None:

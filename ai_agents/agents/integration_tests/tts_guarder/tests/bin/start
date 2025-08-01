@@ -9,4 +9,4 @@ EXTENSION_NAME=${EXT_NAME:-elevenlabs_tts_python}
 
 export PYTHONPATH=.:ten_packages/system/ten_runtime_python/lib:ten_packages/system/ten_runtime_python/interface:ten_packages/system/ten_ai_base/interface:ten_packages/extension/${EXTENSION_NAME}:$PYTHONPATH
 
-pytest -s tests/test_flush.py "$@"
+pytest -s tests/test_invalid_text_handling.py "$@"
