@@ -24,7 +24,7 @@ import glob
 TTS_DUMP_CONFIG_FILE="property_dump.json"
 
 
-class DumpTester(AsyncExtensionTester):
+class DumperByRequestTester(AsyncExtensionTester):
     """Test class for TTS extension dump"""
 
     def __init__(
@@ -240,7 +240,7 @@ def test_dump(extension_name: str, config_dir: str) -> None:
 
 
     # Create and run tester
-    tester = DumpTester(
+    tester = DumperByRequestTester(
         session_id="test_dump_session_123",
         text="hello world, hello agora, hello shanghai, nice to meet you!",
     )

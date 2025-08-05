@@ -21,26 +21,26 @@ import asyncio
 import os
 import glob
 
-TTS_DUMP_CONFIG_FILE="property_dump.json"
+TTS_FLUSH_CONFIG_FILE="property_dump.json"
 
 
-class DumpTester(AsyncExtensionTester):
-    """Test class for TTS extension dump"""
+class FlushTester(AsyncExtensionTester):
+    """Test class for TTS extension flush"""
 
     def __init__(
         self,
-        session_id: str = "test_dump_session_123",
+        session_id: str = "test_flush_session_123",
         text: str = "",
     ):
         super().__init__()
         print("=" * 80)
-        print("🧪 TEST CASE: Dump TTS Test")
+        print("🧪 TEST CASE: TTS Flush Test")
         print("=" * 80)
         print(
-            "📋 Test Description: Validate TTS result dump"
+            "📋 Test Description: Validate TTS flush"
         )
         print("🎯 Test Objectives:")
-        print("   - Verify dump is generated")
+        print("   - Verify flush is generated")
         print("=" * 80)
 
         self.session_id: str = session_id
@@ -86,7 +86,7 @@ class DumpTester(AsyncExtensionTester):
         tts_text_input_obj.set_property_string("request_id", "test_flush_request_id_1")
         tts_text_input_obj.set_property_bool("text_input_end", True)
         metadata = {
-            "session_id": "test_dump_session_123",
+            "session_id": "test_flush_session_123",
             "turn_id": 1,
         }
         tts_text_input_obj.set_property_from_json("metadata", json.dumps(metadata))
@@ -190,17 +190,17 @@ class DumpTester(AsyncExtensionTester):
         flush_data = Data.create("tts_flush")
         flush_data.set_property_string("flush_id", "test_flush_request_id_1")
         metadata = {
-            "session_id": "test_dump_session_123",
+            "session_id": "test_flush_session_123",
         }
         #flush_data.set_property_from_json("metadata", json.dumps(metadata))
         await ten_env.send_data(flush_data)
 
-def test_dump(extension_name: str, config_dir: str) -> None:
-    """Verify TTS result dump."""
+def test_flush(extension_name: str, config_dir: str) -> None:
+    """Verify TTS result flush."""
 
 
     # Get config file path
-    config_file_path = os.path.join(config_dir, TTS_DUMP_CONFIG_FILE)
+    config_file_path = os.path.join(config_dir, TTS_FLUSH_CONFIG_FILE)
     if not os.path.exists(config_file_path):
         raise FileNotFoundError(f"Config file not found: {config_file_path}")
 
@@ -218,8 +218,8 @@ def test_dump(extension_name: str, config_dir: str) -> None:
 
 
     # Create and run tester
-    tester = DumpTester(
-        session_id="test_dump_session_123",
+    tester = FlushTester(
+        session_id="test_flush_session_123",
         text="Mr. and Mrs. Dursley, of number four, Privet Drive, were proud to say that they were perfectly normal, thank you very much. They were the last people you'd expect to be involved in anything strange or mysterious, because they just didn't hold with such nonsense.",
     )
 

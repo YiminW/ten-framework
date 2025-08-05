@@ -61,9 +61,20 @@ class InvalidTextHandlingTester(AsyncExtensionTester):
             {"invalid": "😀😃😄😁", "valid": "Multiple emoji test."},
             
             # 标点符号
-            {"invalid": "，。/】（", "valid": "Chinese punctuation test."},
-            {"invalid": "./(]}", "valid": "English punctuation test."},
-            {"invalid": "！？；：", "valid": "More Chinese punctuation."},
+            {"invalid": "，", "valid": "Chinese punctuation test."},
+            {"invalid": "。", "valid": "Chinese punctuation test."},
+            {"invalid": "/", "valid": "Chinese punctuation test."},
+            {"invalid": "】", "valid": "Chinese punctuation test."},
+            {"invalid": "（", "valid": "Chinese punctuation test."},
+            {"invalid": ".", "valid": "English punctuation test."},
+            {"invalid": "/", "valid": "English punctuation test."},
+            {"invalid": "(", "valid": "English punctuation test."},
+            {"invalid": "]", "valid": "English punctuation test."},
+            {"invalid": "}", "valid": "English punctuation test."},
+            {"invalid": "！", "valid": "More Chinese punctuation."},
+            {"invalid": "？", "valid": "More Chinese punctuation."},
+            {"invalid": "；", "valid": "More Chinese punctuation."},
+            {"invalid": "：", "valid": "More Chinese punctuation."},
             
             # 计算公式
             {"invalid": "x = (-b ± √(b² - 4ac)) / 2a", "valid": "Mathematical formula test."},
