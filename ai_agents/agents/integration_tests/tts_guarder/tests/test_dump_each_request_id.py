@@ -24,7 +24,7 @@ import glob
 TTS_DUMP_CONFIG_FILE="property_dump.json"
 
 
-class DumpTester(AsyncExtensionTester):
+class DumperByRequestTester(AsyncExtensionTester):
     """Test class for TTS extension dump"""
 
     def __init__(

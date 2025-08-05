@@ -26,8 +26,8 @@ TTS_BASIC_AUDIO_SETTING_CONFIG_FILE2="property_basic_audio_setting2.json"
 CASE1_SAMPLE_RATE=0
 CASE2_SAMPLE_RATE=0
 
-class DumpTester(AsyncExtensionTester):
-    """Test class for TTS extension dump"""
+class BasicAudioSettingTester(AsyncExtensionTester):
+    """Test class for TTS extension basic audio setting"""
 
     def __init__(
         self,
@@ -49,7 +49,7 @@ class DumpTester(AsyncExtensionTester):
 
         self.session_id: str = session_id
         self.text: str = text
-        self.dump_file_name = f"tts_dump_{self.session_id}.pcm"
+        self.dump_file_name = f"tts_basic_audio_setting_{self.session_id}.pcm"
         self.count_audio_end = 0
         self.request_id: int = request_id
         self.sample_rate: int = 0  # 存储当前测试的 sample_rate
@@ -93,7 +93,7 @@ class DumpTester(AsyncExtensionTester):
         tts_text_input_obj.set_property_string("request_id", str(self.request_id))
         tts_text_input_obj.set_property_bool("text_input_end", True)
         metadata = {
-            "session_id": "test_basic_audio_setting_session_123",
+            "session_id": self.session_id,
             "turn_id": 1,
         }
         tts_text_input_obj.set_property_from_json("metadata", json.dumps(metadata))
@@ -210,7 +210,7 @@ def run_single_test(extension_name: str, config_file: str, test_name: str, reque
         config: dict[str, Any] = json.load(f)
 
     # Create and run tester
-    tester = DumpTester(
+    tester = BasicAudioSettingTester(
         session_id=f"test_session_{test_name}",
         text="hello world, hello agora, hello shanghai, nice to meet you!",
         request_id=request_id,

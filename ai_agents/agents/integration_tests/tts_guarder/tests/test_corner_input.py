@@ -21,26 +21,26 @@ import asyncio
 import os
 import glob
 
-TTS_DUMP_CONFIG_FILE="property_basic_audio_setting1.json"
+TTS_CORNER_INPUT_CONFIG_FILE="property_basic_audio_setting1.json"
 
 
-class DumpTester(AsyncExtensionTester):
-    """Test class for TTS extension dump"""
+class ConerTester(AsyncExtensionTester):
+    """Test class for TTS extension corner input"""
 
     def __init__(
         self,
-        session_id: str = "test_corner_session_123",
+        session_id: str = "test_corner_input_session_123",
         text: str = "",
     ):
         super().__init__()
         print("=" * 80)
-        print("🧪 TEST CASE: Dump TTS Test")
+        print("🧪 TEST CASE: TTS Corner Input Test")
         print("=" * 80)
         print(
-            "📋 Test Description: Validate TTS result dump"
+            "📋 Test Description: Validate TTS corner input"
         )
         print("🎯 Test Objectives:")
-        print("   - Verify dump is generated")
+        print("   - Verify corner input is generated")
         print("=" * 80)
 
         self.session_id: str = session_id
@@ -85,7 +85,7 @@ class DumpTester(AsyncExtensionTester):
         tts_text_input_obj.set_property_string("request_id", "test_corner_input_request_id_1")
         tts_text_input_obj.set_property_bool("text_input_end", True)
         metadata = {
-            "session_id": "test_corner_session_123",
+            "session_id": "test_corner_input_session_123",
             "turn_id": 1,
         }
         tts_text_input_obj.set_property_from_json("metadata", json.dumps(metadata))
@@ -159,11 +159,11 @@ class DumpTester(AsyncExtensionTester):
 
 
 def test_corner_input(extension_name: str, config_dir: str) -> None:
-    """Verify TTS result dump."""
+    """Verify TTS result corner input."""
 
 
     # Get config file path
-    config_file_path = os.path.join(config_dir, TTS_DUMP_CONFIG_FILE)
+    config_file_path = os.path.join(config_dir, TTS_CORNER_INPUT_CONFIG_FILE)
     if not os.path.exists(config_file_path):
         raise FileNotFoundError(f"Config file not found: {config_file_path}")
     
@@ -174,8 +174,8 @@ def test_corner_input(extension_name: str, config_dir: str) -> None:
 
 
     # Create and run tester
-    tester = DumpTester(
-        session_id="test_corner_session_123",
+    tester = ConerTester(
+        session_id="test_corner_input_session_123",
         text="hello world, hello agora, hello shanghai, nice to meet you!",
     )
 
