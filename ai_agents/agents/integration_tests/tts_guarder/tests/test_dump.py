@@ -151,7 +151,8 @@ class DumpTester(AsyncExtensionTester):
 
             self._stop_test_with_error(ten_env, f"Received error data")
             return
-        
+        elif name =="tts_audio_end":
+            ten_env.stop_test()
         
     @override
     async def on_audio_frame(self, ten_env: AsyncTenEnvTester, audio_frame: AudioFrame) -> None:

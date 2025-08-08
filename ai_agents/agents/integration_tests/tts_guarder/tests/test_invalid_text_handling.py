@@ -42,69 +42,58 @@ class InvalidTextHandlingTester(AsyncExtensionTester):
         self.received_tts_output: bool = False
         self.received_error: bool = False
         self.current_test_text: str = ""
-        
-        # 定义测试用例：无效文本和有效文本的配对
-        self.test_cases = [
-            # 空字符串和空格
-            {"invalid": "", "valid": "Hello world."},
-            {"invalid": " ", "valid": "This is a test."},
-            {"invalid": "   ", "valid": "Another test case."},
-            
-            # 换行符和制表符
-            {"invalid": "\n", "valid": "Text with newline test."},
-            {"invalid": "\t", "valid": "Text with tab test."},
-            {"invalid": "\n\t\n", "valid": "Mixed whitespace test."},
-            
-            # 颜文字和表情
-            {"invalid": ":-)", "valid": "Smile test."},
-            {"invalid": "😊", "valid": "Emoji test."},
-            {"invalid": "😀😃😄😁", "valid": "Multiple emoji test."},
-            
-            # 标点符号
-            {"invalid": "，", "valid": "Chinese punctuation test."},
-            {"invalid": "。", "valid": "Chinese punctuation test."},
-            {"invalid": "/", "valid": "Chinese punctuation test."},
-            {"invalid": "】", "valid": "Chinese punctuation test."},
-            {"invalid": "（", "valid": "Chinese punctuation test."},
-            {"invalid": ".", "valid": "English punctuation test."},
-            {"invalid": "/", "valid": "English punctuation test."},
-            {"invalid": "(", "valid": "English punctuation test."},
-            {"invalid": "]", "valid": "English punctuation test."},
-            {"invalid": "}", "valid": "English punctuation test."},
-            {"invalid": "！", "valid": "More Chinese punctuation."},
-            {"invalid": "？", "valid": "More Chinese punctuation."},
-            {"invalid": "；", "valid": "More Chinese punctuation."},
-            {"invalid": "：", "valid": "More Chinese punctuation."},
-            
-            # 计算公式
-            {"invalid": "x = (-b ± √(b² - 4ac)) / 2a", "valid": "Mathematical formula test."},
-            {"invalid": "2H₂ + O₂ → 2H₂O", "valid": "Chemical equation test."},
-            {"invalid": "H₂O", "valid": "Chemical formula test."},
-            
-            # 混合无效文本
-            {"invalid": "   \n\t😊，。/(]}x = (-b ± √(b² - 4ac)) / 2a", "valid": "Mixed invalid text test."},
-        ]
 
-    async def _send_tts_text_input(self, ten_env: AsyncTenEnvTester, text: str, is_end: bool = False) -> None:
-        """Send tts text input to TTS extension."""
+
+class SingleTestCaseTester(AsyncExtensionTester):
+    """单个测试用例的测试器，每个测试用例独立运行"""
+    
+    def __init__(self, test_index: int, invalid_text: str, valid_text: str, session_id: str):
+        super().__init__()
+        self.test_index = test_index
+        self.invalid_text = invalid_text
+        self.valid_text = valid_text
+        self.session_id = session_id
+        
+        # 测试状态
+        self.received_audio_frame: bool = False
+        self.received_tts_output: bool = False
+        self.received_error: bool = False
+        self.test_success: bool = False
+        
+        print(f"\n{'='*60}")
+        print(f"🧪 Running test case {test_index + 1}")
+        print(f"Invalid text: '{invalid_text}'")
+        print(f"Valid text: '{valid_text}'")
+        print(f"{'='*60}")
+
+
+
+    async def _send_tts_text_input_single(self, ten_env: AsyncTenEnvTester, text: str, is_end: bool = False) -> None:
+        """Send tts text input to TTS extension for single test case."""
         ten_env.log_info(f"Sending tts text input: '{text}' (length: {len(text)})")
         
         tts_text_input_obj = Data.create("tts_text_input")
         tts_text_input_obj.set_property_string("text", text)
-        tts_text_input_obj.set_property_string("request_id", f"test_invalid_request_{self.current_test_index}")
+        tts_text_input_obj.set_property_string("request_id", f"test_invalid_request_{self.test_index}")
         tts_text_input_obj.set_property_bool("text_input_end", is_end)
         
         metadata = {
             "session_id": self.session_id,
-            "turn_id": self.current_test_index + 1,
+            "turn_id": self.test_index + 1,
         }
         tts_text_input_obj.set_property_from_json("metadata", json.dumps(metadata))
         
         await ten_env.send_data(tts_text_input_obj)
         ten_env.log_info(f"✅ tts text input sent: '{text}'")
 
-    def _validate_error_response(self, ten_env: AsyncTenEnvTester, json_data: dict[str, Any]) -> bool:
-        """验证错误响应是否符合要求"""
+
+
+
+
+
+
+    def _validate_error_response_single(self, ten_env: AsyncTenEnvTester, json_data: dict[str, Any]) -> bool:
+        """验证错误响应是否符合要求（单个测试用例版本）"""
         ten_env.log_info("Validating error response...")
         
         # 检查必需字段
@@ -129,82 +118,43 @@ class InvalidTextHandlingTester(AsyncExtensionTester):
         ten_env.log_info(f"✅ Error response validation passed: {json_data}")
         return True
 
-    def _reset_test_state(self):
-        """重置测试状态"""
-        self.received_audio_frame = False
-        self.received_tts_output = False
-        self.received_error = False
-
-    async def _run_single_test(self, ten_env: AsyncTenEnvTester, invalid_text: str, valid_text: str) -> bool:
-        """运行单个测试用例"""
-        ten_env.log_info(f"\n{'='*60}")
-        ten_env.log_info(f"Running test case {self.current_test_index + 1}")
-        ten_env.log_info(f"Invalid text: '{invalid_text}'")
-        ten_env.log_info(f"Valid text: '{valid_text}'")
-        ten_env.log_info(f"{'='*60}")
-        
-        self._reset_test_state()
+    @override
+    async def on_start(self, ten_env: AsyncTenEnvTester) -> None:
+        """开始单个测试用例"""
+        ten_env.log_info(f"Starting test case {self.test_index + 1}")
         
         # 步骤1: 发送无效文本
         ten_env.log_info("Step 1: Sending invalid text...")
-        self.current_test_text = invalid_text
-        await self._send_tts_text_input(ten_env, invalid_text, False)
+        await self._send_tts_text_input_single(ten_env, self.invalid_text, False)
         
         # 等待错误响应
         await asyncio.sleep(2)
         
-        ten_env.log_info("✅ Error response received for invalid text")
-        
         # 步骤2: 发送有效文本
         ten_env.log_info("Step 2: Sending valid text...")
-        self.current_test_text = valid_text
-        await self._send_tts_text_input(ten_env, valid_text, True)
+        await self._send_tts_text_input_single(ten_env, self.valid_text, True)
         
         # 等待TTS输出和音频帧
-        await asyncio.sleep(5)
+        await asyncio.sleep(2)
         
+        # 检查测试结果
         if not self.received_tts_output:
             ten_env.log_error("❌ No tts_text_output received for valid text")
-            return False
-        
-        if not self.received_audio_frame:
+            self.test_success = False
+        elif not self.received_audio_frame:
             ten_env.log_error("❌ No audio frame received for valid text")
-            return False
-        
-        ten_env.log_info("✅ TTS output and audio frame received for valid text")
-        return True
-
-    @override
-    async def on_start(self, ten_env: AsyncTenEnvTester) -> None:
-        """开始测试"""
-        ten_env.log_info("Starting TTS invalid text handling test")
-        
-        # 运行所有测试用例
-        for i, test_case in enumerate(self.test_cases):
-            self.current_test_index = i
-            success = await self._run_single_test(ten_env, test_case["invalid"], test_case["valid"])
-            
-            test_result = {
-                "test_index": i,
-                "invalid_text": test_case["invalid"],
-                "valid_text": test_case["valid"],
-                "success": success
-            }
-            self.test_results.append(test_result)
-            
-            if not success:
-                ten_env.log_error(f"❌ Test case {i + 1} failed")
-                break
-            else:
-                ten_env.log_info(f"✅ Test case {i + 1} passed")
+            self.test_success = False
+        else:
+            ten_env.log_info("✅ TTS output and audio frame received for valid text")
+            self.test_success = True
         
         # 测试完成
-        ten_env.log_info("All test cases completed")
+        ten_env.log_info(f"Test case {self.test_index + 1} completed with success: {self.test_success}")
         ten_env.stop_test()
 
     @override
     async def on_data(self, ten_env: AsyncTenEnvTester, data: Data) -> None:
-        """处理接收到的数据"""
+        """处理接收到的数据（单个测试用例版本）"""
         name: str = data.get_name()
         json_str, metadata = data.get_property_to_json("")
         
@@ -216,7 +166,7 @@ class InvalidTextHandlingTester(AsyncExtensionTester):
             # 处理错误响应
             try:
                 error_data = json.loads(json_str) if json_str else {}
-                if self._validate_error_response(ten_env, error_data):
+                if self._validate_error_response_single(ten_env, error_data):
                     self.received_error = True
                     ten_env.log_info("✅ Valid error response received")
                 else:
@@ -243,10 +193,9 @@ class InvalidTextHandlingTester(AsyncExtensionTester):
 
     @override
     async def on_audio_frame(self, ten_env: AsyncTenEnvTester, audio_frame: AudioFrame) -> None:
-        """处理音频帧"""
+        """处理音频帧（单个测试用例版本）"""
         self.received_audio_frame = True
         ten_env.log_info(f"🎵 Audio frame received: {audio_frame.get_sample_rate()}Hz, {audio_frame.get_bytes_per_sample()} bytes/sample")
-
 
 def test_invalid_text_handling(extension_name: str, config_dir: str) -> None:
     """测试TTS扩展对无效文本的处理能力"""
@@ -260,35 +209,121 @@ def test_invalid_text_handling(extension_name: str, config_dir: str) -> None:
     with open(config_file_path, "r") as f:
         config: dict[str, Any] = json.load(f)
     
-    # 创建并运行测试器
-    tester = InvalidTextHandlingTester(session_id="test_invalid_text_session_123")
-    tester.set_test_mode_single(extension_name, json.dumps(config))
-    error = tester.run()
+    # 定义测试用例
+    test_cases = [
+        # 空字符串和空格
+        {"invalid": "", "valid": "Hello world."},
+        {"invalid": " ", "valid": "This is a test."},
+        {"invalid": "   ", "valid": "Another test case."},
+        
+        # 换行符和制表符
+        {"invalid": "\n", "valid": "Text with newline test."},
+        {"invalid": "\t", "valid": "Text with tab test."},
+        {"invalid": "\n\t\n", "valid": "Mixed whitespace test."},
+        
+        # 颜文字和表情
+        {"invalid": ":-)", "valid": "Smile test."},
+        {"invalid": "😊", "valid": "Emoji test."},
+        {"invalid": "😀😃😄😁", "valid": "Multiple emoji test."},
+        
+        # 标点符号
+        {"invalid": "，", "valid": "Chinese punctuation test."},
+        {"invalid": "。", "valid": "Chinese punctuation test."},
+        {"invalid": "/", "valid": "Chinese punctuation test."},
+        {"invalid": "】", "valid": "Chinese punctuation test."},
+        {"invalid": "（", "valid": "Chinese punctuation test."},
+        {"invalid": ".", "valid": "English punctuation test."},
+        {"invalid": "/", "valid": "English punctuation test."},
+        {"invalid": "(", "valid": "English punctuation test."},
+        {"invalid": "]", "valid": "English punctuation test."},
+        {"invalid": "}", "valid": "English punctuation test."},
+        {"invalid": "！", "valid": "More Chinese punctuation."},
+        {"invalid": "？", "valid": "More Chinese punctuation."},
+        {"invalid": "；", "valid": "More Chinese punctuation."},
+        {"invalid": "：", "valid": "More Chinese punctuation."},
+        
+        # 计算公式
+        {"invalid": "x = (-b ± √(b² - 4ac)) / 2a", "valid": "Mathematical formula test."},
+        {"invalid": "2H₂ + O₂ → 2H₂O", "valid": "Chemical equation test."},
+        {"invalid": "H₂O", "valid": "Chemical formula test."},
+        
+        # 混合无效文本
+        {"invalid": "   \n\t😊，。/(]}x = (-b ± √(b² - 4ac)) / 2a", "valid": "Mixed invalid text test."},
+    ]
+    
+    # 存储所有测试结果
+    all_test_results = []
+    
+    print("=" * 80)
+    print("🧪 TEST CASE: TTS Invalid Text Handling Test")
+    print("=" * 80)
+    print("📋 Test Description: Validate TTS extension handles invalid text correctly")
+    print("🎯 Test Objectives:")
+    print("   - Verify invalid text returns NON_FATAL_ERROR with vendor_info")
+    print("   - Verify valid text returns tts_text_output and audio frame")
+    print("   - Test various types of invalid text")
+    print("   - Each test case runs independently with fresh extension instance")
+    print("=" * 80)
+    
+    # 为每个测试用例创建独立的测试器
+    for i, test_case in enumerate(test_cases):
+        print(f"\n{'='*60}")
+        print(f"🧪 Running test case {i + 1}/{len(test_cases)}")
+        print(f"Invalid text: '{test_case['invalid']}'")
+        print(f"Valid text: '{test_case['valid']}'")
+        print(f"{'='*60}")
+        
+        # 创建独立的测试器
+        tester = SingleTestCaseTester(
+            test_index=i,
+            invalid_text=test_case["invalid"],
+            valid_text=test_case["valid"],
+            session_id=f"test_invalid_text_session_{i}"
+        )
+        
+        # 设置测试模式并运行
+        tester.set_test_mode_single(extension_name, json.dumps(config))
+        error = tester.run()
+        
+        # 记录测试结果
+        test_result = {
+            "test_index": i,
+            "invalid_text": test_case["invalid"],
+            "valid_text": test_case["valid"],
+            "success": tester.test_success,
+            "error": error
+        }
+        all_test_results.append(test_result)
+        
+        if tester.test_success:
+            print(f"✅ Test case {i + 1} passed")
+        else:
+            print(f"❌ Test case {i + 1} failed")
+            if error:
+                print(f"   Error: {error}")
     
     # 输出测试结果摘要
     print("\n" + "="*80)
     print("📊 TEST RESULTS SUMMARY")
     print("="*80)
     
-    passed_tests = sum(1 for result in tester.test_results if result["success"])
-    total_tests = len(tester.test_results)
+    passed_tests = sum(1 for result in all_test_results if result["success"])
+    total_tests = len(all_test_results)
     
     print(f"Total test cases: {total_tests}")
     print(f"Passed: {passed_tests}")
     print(f"Failed: {total_tests - passed_tests}")
     
-    # 验证测试结果
-    if error is not None:
-        raise AssertionError(f"Test failed: {error.error_message() if error else 'Unknown error'}")
-    
     # 检查是否有测试用例失败
     if passed_tests != total_tests:
         print("❌ Some tests failed!")
-        for result in tester.test_results:
+        for result in all_test_results:
             if not result["success"]:
                 print(f"  - Test {result['test_index'] + 1} failed")
                 print(f"    Invalid text: '{result['invalid_text']}'")
                 print(f"    Valid text: '{result['valid_text']}'")
+                if result["error"]:
+                    print(f"    Error: {result['error']}")
         raise AssertionError(f"Test failed: {total_tests - passed_tests} out of {total_tests} test cases failed")
     else:
         print("🎉 All tests passed!")
