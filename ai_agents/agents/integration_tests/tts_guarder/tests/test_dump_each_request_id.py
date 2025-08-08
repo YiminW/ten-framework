@@ -20,6 +20,7 @@ import json
 import asyncio
 import os
 import glob
+import time
 
 TTS_DUMP_CONFIG_FILE="property_dump.json"
 
@@ -153,6 +154,7 @@ class DumperByRequestTester(AsyncExtensionTester):
         elif name == "tts_audio_end":
             if self.count_audio_end == 0:
                 self.count_audio_end += 1
+                time.sleep(1)
                 await self._send_tts_text_input(ten_env, "second request id" + self.text, 2)
                 return
             else:
@@ -173,6 +175,7 @@ class DumperByRequestTester(AsyncExtensionTester):
             return
         
         # 获取目录下的所有文件
+        time.sleep(1)
         dump_files = []
         for file_path in glob.glob(os.path.join(self.tts_extension_dump_folder, "*")):
             if os.path.isfile(file_path):

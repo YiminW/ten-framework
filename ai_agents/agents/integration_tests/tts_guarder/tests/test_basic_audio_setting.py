@@ -81,8 +81,8 @@ class BasicAudioSettingTester(AsyncExtensionTester):
 
     @override
     async def on_start(self, ten_env: AsyncTenEnvTester) -> None:
-        """Start the TTS invalid required params test."""
-        ten_env.log_info("Starting TTS invalid required params test")
+        """Start the TTS Basic Audio Setting test."""
+        ten_env.log_info("Starting TTS Basic Audio Setting test")
         await self._send_tts_text_input(ten_env, self.text)
 
     async def _send_tts_text_input(self, ten_env: AsyncTenEnvTester, text: str, request_num: int = 1) -> None:
