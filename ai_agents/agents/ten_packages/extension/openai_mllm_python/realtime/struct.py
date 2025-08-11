@@ -72,7 +72,9 @@ class RealtimeError:
 
 @dataclass
 class InputAudioTranscription:
-    model: str = "whisper-1"  # Default transcription model is "whisper-1"
+    model: str = "gpt-4o-transcribe"
+    prompt: str = ""
+    language: str = "en"
 
 
 @dataclass
@@ -122,7 +124,7 @@ class Session:
         AudioFormats.PCM16
     )  # Audio format for output (e.g., "pcm16")
     input_audio_transcription: Optional[InputAudioTranscription] = (
-        None  # Audio transcription model settings (e.g., "whisper-1")
+        None
     )
     tools: List[Dict[str, Union[str, Any]]] = field(
         default_factory=list
@@ -156,8 +158,9 @@ class SessionUpdateParams:
         None  # Output audio format from `AudioFormats` Enum
     )
     input_audio_transcription: Optional[InputAudioTranscription] = (
-        None  # Optional transcription model
+        None
     )
+
     tools: Optional[List[Dict[str, Union[str, any]]]] = (
         None  # List of tools (e.g., dictionaries)
     )

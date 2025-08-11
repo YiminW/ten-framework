@@ -7,28 +7,21 @@
 #
 import asyncio
 import base64
-import json
-from enum import Enum
 import traceback
 import time
-from typing import Iterable, Literal
+from typing import Literal
 
 from ten_ai_base.mllm import AsyncMLLMBaseExtension
 from ten_ai_base.struct import MLLMClientFunctionCallOutput, MLLMClientMessageItem, MLLMServerFunctionCall, MLLMServerInputTranscript, MLLMServerInterrupt, MLLMServerOutputTranscript, MLLMServerSessionReady
 from ten_runtime import (
     AudioFrame,
     AsyncTenEnv,
-    Cmd,
-    StatusCode,
     Data,
 )
-from ten_ai_base.const import CMD_PROPERTY_RESULT, CMD_TOOL_CALL
 from dataclasses import dataclass
 from ten_ai_base.config import BaseConfig
 from ten_ai_base.types import (
     LLMToolMetadata,
-    LLMToolResult,
-    LLMChatCompletionContentPartParam,
 )
 from .realtime.connection import RealtimeApiConnection
 from .realtime.struct import (
@@ -55,7 +48,6 @@ from .realtime.struct import (
     InputAudioBufferSpeechStopped,
     ResponseFunctionCallArgumentsDone,
     ErrorMessage,
-    ItemTruncate,
     SessionUpdate,
     SessionUpdateParams,
     InputAudioTranscription,
@@ -73,14 +65,13 @@ class OpenAIRealtimeConfig(BaseConfig):
     api_key: str = ""
     path: str = "/v1/realtime"
     model: str = "gpt-4o-realtime-preview"
-    language: str = "en-US"
+    language: str = "en"
     prompt: str = ""
     temperature: float = 0.5
     max_tokens: int = 1024
     voice: str = "alloy"
     server_vad: bool = True
     audio_out: bool = True
-    input_transcript: bool = True
     sample_rate: int = 24000
     vad_type: Literal["server_vad", "semantic_vad"] = "server_vad"
     vad_eagerness: Literal["low", "medium", "high", "auto"] = "auto"
@@ -88,17 +79,8 @@ class OpenAIRealtimeConfig(BaseConfig):
     vad_prefix_padding_ms: int = 300
     vad_silence_duration_ms: int = 500
     vendor: str = ""
-    stream_id: int = 0
     dump: bool = False
-    greeting: str = ""
-    max_history: int = 20
-    enable_storage: bool = False
-
-    def build_ctx(self) -> dict:
-        return {
-            "language": self.language,
-            "model": self.model,
-        }
+    dump_path: str = ""
 
 
 class OpenAIRealtime2Extension(AsyncMLLMBaseExtension):
@@ -131,6 +113,9 @@ class OpenAIRealtime2Extension(AsyncMLLMBaseExtension):
         if not self.config.api_key:
             ten_env.log_error("api_key is required")
             raise ValueError("api_key is required")
+
+    def input_audio_sample_rate(self) -> int:
+        return self.config.sample_rate
 
     async def start_connection(self) -> None:
         try:
@@ -173,7 +158,7 @@ class OpenAIRealtime2Extension(AsyncMLLMBaseExtension):
                             )
                             await self.send_server_session_ready(MLLMServerSessionReady())
                         case ItemInputAudioTranscriptionDelta():
-                            self.ten_env.log_info(
+                            self.ten_env.log_debug(
                                 f"On request transcript delta {message.item_id} {message.content_index}"
                             )
                             self.request_transcript += message.delta
@@ -186,7 +171,7 @@ class OpenAIRealtime2Extension(AsyncMLLMBaseExtension):
                                 }
                             ))
                         case ItemInputAudioTranscriptionCompleted():
-                            self.ten_env.log_info(
+                            self.ten_env.log_debug(
                                 f"On request transcript {message.transcript}"
                             )
                             await self.send_server_input_transcript(MLLMServerInputTranscript(
@@ -197,17 +182,19 @@ class OpenAIRealtime2Extension(AsyncMLLMBaseExtension):
                                     "session_id": self.session_id if self.session_id else "-1",
                                 }
                             ))
+                            self.request_transcript = ""
                         case ItemInputAudioTranscriptionFailed():
                             self.ten_env.log_warn(
                                 f"On request transcript failed {message.item_id} {message.error}"
                             )
+                            self.request_transcript = ""
                         case ItemCreated():
-                            self.ten_env.log_info(
+                            self.ten_env.log_debug(
                                 f"On item created {message.item}"
                             )
                         case ResponseCreated():
                             response_id = message.response.id
-                            self.ten_env.log_info(
+                            self.ten_env.log_debug(
                                 f"On response created {response_id}"
                             )
                         case ResponseDone():
@@ -215,14 +202,14 @@ class OpenAIRealtime2Extension(AsyncMLLMBaseExtension):
                             status = message.response.status
                             if msg_resp_id == response_id:
                                 response_id = ""
-                            self.ten_env.log_info(
+                            self.ten_env.log_debug(
                                 f"On response done {msg_resp_id} {status} {message.response.usage}"
                             )
                             if message.response.usage:
                                 pass
                                 # await self._update_usage(message.response.usage)
                         case ResponseAudioTranscriptDelta():
-                            self.ten_env.log_info(
+                            self.ten_env.log_debug(
                                 f"On response transcript delta {message.response_id} {message.output_index} {message.content_index} {message.delta}"
                             )
                             if message.response_id in flushed:
@@ -241,7 +228,7 @@ class OpenAIRealtime2Extension(AsyncMLLMBaseExtension):
                                 }
                             ))
                         case ResponseTextDelta():
-                            self.ten_env.log_info(
+                            self.ten_env.log_debug(
                                 f"On response text delta {message.response_id} {message.output_index} {message.content_index} {message.delta}"
                             )
                             if message.response_id in flushed:
@@ -262,7 +249,7 @@ class OpenAIRealtime2Extension(AsyncMLLMBaseExtension):
                                 }
                             ))
                         case ResponseAudioTranscriptDone():
-                            self.ten_env.log_info(
+                            self.ten_env.log_debug(
                                 f"On response transcript done {message.output_index} {message.content_index} {message.transcript}"
                             )
                             if message.response_id in flushed:
@@ -272,7 +259,7 @@ class OpenAIRealtime2Extension(AsyncMLLMBaseExtension):
                                 continue
                             await self.send_server_output_text(MLLMServerOutputTranscript(
                                 content=self.response_transcript,
-                                delta=None,
+                                delta="",
                                 final=True,
                                 metadata={
                                     "session_id": self.session_id if self.session_id else "-1",
@@ -280,7 +267,7 @@ class OpenAIRealtime2Extension(AsyncMLLMBaseExtension):
                             ))
                             self.response_transcript = ""
                         case ResponseTextDone():
-                            self.ten_env.log_info(
+                            self.ten_env.log_debug(
                                 f"On response text done {message.output_index} {message.content_index} {message.text}"
                             )
                             if message.response_id in flushed:
@@ -290,7 +277,7 @@ class OpenAIRealtime2Extension(AsyncMLLMBaseExtension):
                                 continue
                             await self.send_server_output_text(MLLMServerOutputTranscript(
                                 content=self.response_transcript,
-                                delta=None,
+                                delta="",
                                 final=True,
                                 metadata={
                                     "session_id": self.session_id if self.session_id else "-1",
@@ -298,11 +285,11 @@ class OpenAIRealtime2Extension(AsyncMLLMBaseExtension):
                             ))
                             self.response_transcript = ""
                         case ResponseOutputItemDone():
-                            self.ten_env.log_info(
+                            self.ten_env.log_debug(
                                 f"Output item done {message.item}"
                             )
                         case ResponseOutputItemAdded():
-                            self.ten_env.log_info(
+                            self.ten_env.log_debug(
                                 f"Output item added {message.output_index} {message.item}"
                             )
                         case ResponseAudioDelta():
@@ -392,11 +379,13 @@ class OpenAIRealtime2Extension(AsyncMLLMBaseExtension):
             traceback.print_exc()
             self.ten_env.log_error(f"Failed to handle loop {e}")
 
+        await self._handle_reconnect()
+
     async def stop_connection(self) -> None:
         await self.conn.close()
         self.stopped = True
 
-    async def _handle_reconnect(self, ten_env: AsyncTenEnv | None = None) -> None:
+    async def _handle_reconnect(self) -> None:
         """Handle reconnection logic with exponential backoff strategy."""
         await self.stop_connection()
         await self.loop.sleep(1)  # Initial delay before reconnecting
@@ -412,71 +401,6 @@ class OpenAIRealtime2Extension(AsyncMLLMBaseExtension):
 
     async def on_data(self, ten_env: AsyncTenEnv, data: Data) -> None:
         await super().on_data(ten_env, data)
-
-    async def _update_session(self) -> None:
-        if not self.connected:
-            self.ten_env.log_warn("Not connected to OpenAI session")
-            return
-
-        tools = []
-
-        def tool_dict(tool: LLMToolMetadata):
-            t = {
-                "type": "function",
-                "name": tool.name,
-                "description": tool.description,
-                "parameters": {
-                    "type": "object",
-                    "properties": {},
-                    "required": [],
-                    "additionalProperties": False,
-                },
-            }
-
-            for param in tool.parameters:
-                t["parameters"]["properties"][param.name] = {
-                    "type": param.type,
-                    "description": param.description,
-                }
-                if param.required:
-                    t["parameters"]["required"].append(param.name)
-
-            return t
-
-        if self.available_tools:
-            tools = [tool_dict(t) for t in self.available_tools]
-        prompt = self.config.prompt
-
-        self.ten_env.log_info(f"update session {prompt} {tools}")
-        if self.config.vad_type == "server_vad":
-            vad_params = ServerVADUpdateParams(
-                threshold=self.config.vad_threshold,
-                prefix_padding_ms=self.config.vad_prefix_padding_ms,
-                silence_duration_ms=self.config.vad_silence_duration_ms,
-            )
-        else:  # semantic vad
-            vad_params = SemanticVADUpdateParams(
-                eagerness=self.config.vad_eagerness,
-            )
-        su = SessionUpdate(
-            session=SessionUpdateParams(
-                instructions=prompt,
-                model=self.config.model,
-                tool_choice="auto" if self.available_tools else "none",
-                tools=tools,
-                turn_detection=vad_params,
-            )
-        )
-        if self.config.audio_out:
-            su.session.voice = self.config.voice
-        else:
-            su.session.modalities = ["text"]
-
-        if self.config.input_transcript:
-            su.session.input_audio_transcription = InputAudioTranscription(
-                model="whisper-1"
-            )
-        await self.conn.send_request(su)
 
     async def send_client_message_item(self, item: MLLMClientMessageItem, session_id: str | None = None) -> None:
         """
@@ -543,6 +467,72 @@ class OpenAIRealtime2Extension(AsyncMLLMBaseExtension):
             self.ten_env.log_info(f"Resuming context with messages: {message}")
             await self.send_client_message_item(message)
 
+
+    async def _update_session(self) -> None:
+        if not self.connected:
+            self.ten_env.log_warn("Not connected to OpenAI session")
+            return
+
+        tools = []
+
+        def tool_dict(tool: LLMToolMetadata):
+            t = {
+                "type": "function",
+                "name": tool.name,
+                "description": tool.description,
+                "parameters": {
+                    "type": "object",
+                    "properties": {},
+                    "required": [],
+                    "additionalProperties": False,
+                },
+            }
+
+            for param in tool.parameters:
+                t["parameters"]["properties"][param.name] = {
+                    "type": param.type,
+                    "description": param.description,
+                }
+                if param.required:
+                    t["parameters"]["required"].append(param.name)
+
+            return t
+
+        if self.available_tools:
+            tools = [tool_dict(t) for t in self.available_tools]
+        prompt = self.config.prompt
+
+        self.ten_env.log_info(f"update session {prompt} {tools}")
+        if self.config.vad_type == "server_vad":
+            vad_params = ServerVADUpdateParams(
+                threshold=self.config.vad_threshold,
+                prefix_padding_ms=self.config.vad_prefix_padding_ms,
+                silence_duration_ms=self.config.vad_silence_duration_ms,
+            )
+        else:  # semantic vad
+            vad_params = SemanticVADUpdateParams(
+                eagerness=self.config.vad_eagerness,
+            )
+        su = SessionUpdate(
+            session=SessionUpdateParams(
+                instructions=prompt,
+                model=self.config.model,
+                tool_choice="auto" if self.available_tools else "none",
+                tools=tools,
+                turn_detection=vad_params,
+            )
+        )
+        if self.config.audio_out:
+            su.session.voice = self.config.voice
+        else:
+            su.session.modalities = ["text"]
+
+        su.session.input_audio_transcription = InputAudioTranscription(
+            language=self.config.language,
+        )
+        await self.conn.send_request(su)
+
+
     async def _handle_tool_call(
         self, tool_call_id: str, name: str, arguments: str
     ) -> None:
@@ -556,43 +546,3 @@ class OpenAIRealtime2Extension(AsyncMLLMBaseExtension):
                 arguments=arguments
             )
         )
-    #     cmd: Cmd = Cmd.create(CMD_TOOL_CALL)
-    #     cmd.set_property_string("name", name)
-    #     cmd.set_property_from_json("arguments", arguments)
-    #     [result, _] = await self.ten_env.send_cmd(cmd)
-
-    #     tool_response = ItemCreate(
-    #         item=FunctionCallOutputItemParam(
-    #             call_id=tool_call_id,
-    #             output='{"success":false}',
-    #         )
-    #     )
-    #     if result.get_status_code() == StatusCode.OK:
-    #         r, _ = result.get_property_to_json(CMD_PROPERTY_RESULT)
-    #         tool_result: LLMToolResult = json.loads(r)
-
-    #         result_content = tool_result["content"]
-    #         tool_response.item.output = json.dumps(
-    #             self._convert_to_content_parts(result_content)
-    #         )
-    #         self.ten_env.log_info(f"tool_result: {tool_call_id} {tool_result}")
-    #     else:
-    #         self.ten_env.log_error("Tool call failed")
-
-    #     await self.conn.send_request(tool_response)
-    #     await self.conn.send_request(ResponseCreate())
-    #     self.ten_env.log_info(f"_remote_tool_call finish {name} {arguments}")
-
-    # def _convert_to_content_parts(
-    #     self, content: Iterable[LLMChatCompletionContentPartParam]
-    # ):
-    #     content_parts = []
-
-    #     if isinstance(content, str):
-    #         content_parts.append({"type": "text", "text": content})
-    #     else:
-    #         for part in content:
-    #             # Only text content is supported currently for v2v model
-    #             if part["type"] == "text":
-    #                 content_parts.append(part)
-    #     return content_parts
