@@ -66,6 +66,7 @@ class AzureASRExtension(AsyncASRBaseExtension):
             if self.config.dump:
                 dump_file_path = os.path.join(self.config.dump_path, DUMP_FILE_NAME)
                 self.audio_dumper = Dumper(dump_file_path)
+                await self.audio_dumper.start()
         except Exception as e:
             ten_env.log_error(f"invalid property: {e}")
             self.config = AzureASRConfig.model_validate_json("{}")
@@ -76,6 +77,13 @@ class AzureASRExtension(AsyncASRBaseExtension):
                     message=str(e),
                 ),
             )
+
+    @override
+    async def on_deinit(self, ten_env: AsyncTenEnv) -> None:
+        await super().on_deinit(ten_env)
+
+        if self.audio_dumper:
+            await self.audio_dumper.stop()
 
     @override
     async def start_connection(self) -> None:
@@ -152,9 +160,6 @@ class AzureASRExtension(AsyncASRBaseExtension):
             )
             for phrase in self.config.phrase_list:
                 phrase_list_grammar.addPhrase(phrase)
-
-        if self.audio_dumper:
-            await self.audio_dumper.start()
 
         await self._register_azure_event_handlers()
         self.client.start_continuous_recognition()
@@ -487,8 +492,6 @@ class AzureASRExtension(AsyncASRBaseExtension):
             self.client = None
             self.connected = False
             self.ten_env.log_info("azure connection stopped")
-            if self.audio_dumper:
-                await self.audio_dumper.stop()
 
     @override
     def is_connected(self) -> bool:
