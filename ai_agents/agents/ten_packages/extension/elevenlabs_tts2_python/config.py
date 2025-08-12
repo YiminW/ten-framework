@@ -42,8 +42,6 @@ class ElevenLabsTTS2Config(BaseModel):
 
     def update_params(self) -> None:
         # This function allows overriding default config values with 'params' from property.json
-        if "audio_params" in self.params:
-            audio_params = self.params["audio_params"]
-            for key, value in audio_params.items():
-                if hasattr(self, key):
-                    setattr(self, key, value)
+        for key, value in self.params.items():
+            if hasattr(self, key):
+                setattr(self, key, value)

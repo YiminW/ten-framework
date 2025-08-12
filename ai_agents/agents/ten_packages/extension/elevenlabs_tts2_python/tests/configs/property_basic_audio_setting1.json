@@ -3,8 +3,6 @@
     "dump": true,
     "dump_path": "./tests/keep_dump_output/",
     "params": {
-        "audio_params": {
-            "sample_rate": 16000
-        }
+        "sample_rate": 16000
     }
 }
