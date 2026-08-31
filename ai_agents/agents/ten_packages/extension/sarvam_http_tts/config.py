@@ -36,6 +36,13 @@ class SarvamTTSConfig(AsyncTTS2HttpConfig):
                 self.params["speech_sample_rate"]
             )
 
+        # Sarvam only supports pitch and loudness with bulbul:v2. These
+        # parameters make bulbul:v3 requests fail even when they contain the
+        # old default values.
+        if self.params.get("model") == "bulbul:v3":
+            self.params.pop("pitch", None)
+            self.params.pop("loudness", None)
+
         # Remove blacklisted keys from params
         for key in blacklist_keys:
             if key in self.params:
