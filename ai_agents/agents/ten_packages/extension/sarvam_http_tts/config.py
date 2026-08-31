@@ -39,10 +39,7 @@ class SarvamTTSConfig(AsyncTTS2HttpConfig):
         # Sarvam only supports pitch and loudness with bulbul:v2. These
         # parameters make bulbul:v3 requests fail even when they contain the
         # old default values.
-        if (
-            "model" in self.params
-            and self.params["model"] == "bulbul:v3"
-        ):
+        if "model" in self.params and self.params["model"] == "bulbul:v3":
             for key in ["pitch", "loudness"]:
                 if key in self.params:
                     del self.params[key]
