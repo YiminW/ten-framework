@@ -244,9 +244,7 @@ class CosyTTSExtension(AsyncTTS2BaseExtension):
                 )
 
                 # Start audio synthesis
-                self.client.synthesize_audio(
-                    t.text, t.text_input_end, t.request_id
-                )
+                self.client.synthesize_audio(t.text, t.text_input_end)
                 self.is_first_message_of_request = False
 
             # Handle text input end
@@ -546,18 +544,15 @@ class CosyTTSExtension(AsyncTTS2BaseExtension):
                 self.current_request_id,
             )
 
-            self.request_ttfb = self.client.request_ttfb_ms(
-                self.current_request_id
+            self.request_ttfb = self._calculate_ttfb_ms(self.request_start_ts)
+            await self.send_tts_ttfb_metrics(
+                request_id=self.current_request_id,
+                ttfb_ms=self.request_ttfb,
+                extra_metadata={
+                    "model": (self.config.model if self.config else ""),
+                    "voice": (self.config.voice if self.config else ""),
+                },
             )
-            if self.request_ttfb is not None:
-                await self.send_tts_ttfb_metrics(
-                    request_id=self.current_request_id,
-                    ttfb_ms=self.request_ttfb,
-                    extra_metadata={
-                        "model": (self.config.model if self.config else ""),
-                        "voice": (self.config.voice if self.config else ""),
-                    },
-                )
 
             self.ten_env.log_info(
                 f"KEYPOINT Sent TTS audio start and TTFB metrics: {self.request_ttfb}ms, current_request_id: {self.current_request_id}"

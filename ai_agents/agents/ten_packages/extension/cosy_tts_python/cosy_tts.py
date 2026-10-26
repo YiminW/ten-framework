@@ -10,7 +10,6 @@ from dashscope.audio.tts_v2 import (
 import json
 
 from .config import CosyTTSConfig
-from ten_ai_base.tts_timing import TTSRequestTiming
 from ten_ai_base.const import LOG_CATEGORY_TRANSCRIPTS
 from ten_runtime.async_ten_env import AsyncTenEnv
 
@@ -57,8 +56,6 @@ class AsyncIteratorCallback(ResultCallback):
     ) -> None:
         self.ten_env = ten_env
 
-        self.timing = TTSRequestTiming()
-        self.request_id: str | None = None
         self._closed = False
         self._cancelled = False
         self._loop = asyncio.get_event_loop()
@@ -150,8 +147,6 @@ class AsyncIteratorCallback(ResultCallback):
             )
             return
 
-        if data and self.request_id is not None:
-            self.timing.audio_received(self.request_id)
         self.ten_env.log_info(f"Received audio data: {len(data)} bytes")
         # Send audio data to queue
         asyncio.run_coroutine_threadsafe(
@@ -235,14 +230,7 @@ class CosyTTSClient:
             # Clean up synthesizer
             self.synthesizer = None
 
-    def request_ttfb_ms(self, request_id: str) -> int | None:
-        if self._callback is None:
-            return None
-        return self._callback.timing.elapsed_ms(request_id)
-
-    def synthesize_audio(
-        self, text: str, text_input_end: bool, request_id: str
-    ):
+    def synthesize_audio(self, text: str, text_input_end: bool):
         """
         Start audio synthesis for the given text.
         This method only initiates synthesis and returns immediately.
@@ -261,8 +249,6 @@ class CosyTTSClient:
             self.start()
 
         # Start streaming TTS synthesis
-        self._callback.request_id = request_id
-        self._callback.timing.text_sent(request_id)
         self.synthesizer.streaming_call(text)
 
         vendor_request_id = self.synthesizer.get_last_request_id()
