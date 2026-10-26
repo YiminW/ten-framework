@@ -1,6 +1,9 @@
 """Independent first-text/first-audio observations at public provider boundaries."""
 
 import base64
+import gzip
+import os
+import struct
 from contextlib import contextmanager
 from importlib import import_module
 import json
@@ -175,12 +178,42 @@ def _install_http(module, patch, reference):
         patch.setattr(module, "httpx", Library())
 
 
+def _soul_message(raw):
+    """Decode the gateway envelope independently of the extension decoder."""
+    if isinstance(raw, str):
+        return json.loads(raw)
+    magic, version, _command, serialization, compression, length, count = struct.unpack(
+        "!IBBBBIB", raw[:13]
+    )
+    if magic != 0x736F756C or version != 1 or serialization != 1:
+        raise ValueError("Unsupported Soul gateway envelope")
+    if length != len(raw) - 13:
+        raise ValueError("Invalid Soul gateway length")
+    offset = 13
+    for _ in range(count):
+        _, size = struct.unpack("!BI", raw[offset : offset + 5])
+        offset += 5 + size
+        if offset > len(raw):
+            raise ValueError("Invalid Soul gateway header")
+    body = raw[offset:]
+    if compression == 1:
+        body = gzip.decompress(body)
+    elif compression != 0:
+        raise ValueError("Unsupported Soul gateway compression")
+    return json.loads(body)
+
+
 class WebSocketReference:
     def __init__(self, vendor, reference):
         self.vendor = vendor
         self.reference = reference
 
     def observe_send(self, raw):
+        if self.vendor == "soul_tts_python":
+            message = _soul_message(raw)
+            if message.get("event") == "task_continue" and message.get("text"):
+                self.reference.text_sent()
+            return
         if self.vendor == "bytedance_tts":
             import gzip
 
@@ -201,6 +234,13 @@ class WebSocketReference:
                 self.reference.text_sent()
 
     def observe_receive(self, raw):
+        if self.vendor == "soul_tts_python":
+            message = _soul_message(raw)
+            audio = (message.get("data") or {}).get("audio")
+            if message.get("event") == "task_continued" and audio:
+                if base64.b64decode(audio, validate=True):
+                    self.reference.audio_received()
+            return
         if self.vendor == "bytedance_tts":
             if isinstance(raw, bytes) and len(raw) > 12 and raw[1] >> 4 == 11:
                 if int.from_bytes(raw[8:12], "big") > 0:
@@ -334,6 +374,16 @@ def install_ttfb_reference(extension_name, config, monkeypatch):
                     or params.get("api_url")
                     or params.get("base_url")
                 )
+            if extension_name == "soul_tts_python":
+                if url and url.startswith("${env:") and url.endswith("}"):
+                    variable, _, default = url[6:-1].partition("|")
+                    url = os.environ.get(variable, default)
+                if not url:
+                    from ten_packages.extension.soul_tts_python.config import (
+                        DEFAULT_SOUL_TTS_URL,
+                    )
+
+                    url = DEFAULT_SOUL_TTS_URL
             if not url:
                 yield None
                 return
