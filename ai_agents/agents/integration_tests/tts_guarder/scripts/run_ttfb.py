@@ -55,7 +55,7 @@ def main():
             if not path.is_file():
                 parser.error(f"Environment file missing: {path}")
             for key, value in dotenv_values(path).items():
-                if value is not None:
+                if value:
                     env[key] = value
     system = args.app_dir.resolve() / "ten_packages/system"
     extension_dir = args.extension_dir.resolve()

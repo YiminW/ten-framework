@@ -47,12 +47,17 @@ HOOKS = {
         "elevenlabs_tts",
         "wss://api.elevenlabs.io",
     ),
-    "bytedance_tts": ("bytedance", "ByteDanceObserver", "bytedance_tts", None),
+    "bytedance_tts": (
+        "bytedance",
+        "ByteDanceObserver",
+        "bytedance_tts",
+        "wss://openspeech.bytedance.com/api/v1/tts/ws_binary",
+    ),
     "bytedance_tts_duplex": (
         "bytedance_duplex",
         "ByteDanceDuplexObserver",
         "bytedance_tts",
-        None,
+        "wss://openspeech.bytedance.com/api/v3/tts/bidirection",
     ),
     "minimax_tts_websocket": (
         "minimax",

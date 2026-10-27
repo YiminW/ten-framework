@@ -61,8 +61,8 @@ uv run --no-project --python /path/to/prepared/python python \
   --output /tmp/ttfb-review-$(date +%Y%m%d-%H%M%S)
 ```
 
-Repeat `--env-file` to load multiple dotenv files; later files override earlier
-ones. Use `--collect-only` first to validate the seven test invocations without
+Repeat `--env-file` to load multiple dotenv files; later nonempty values
+override earlier ones. Empty template entries do not erase existing values. Use `--collect-only` first to validate the seven test invocations without
 calling providers. Collection is labeled COLLECTED, never PASS.
 
 The runner creates an isolated temporary app using the specified packages and
@@ -112,3 +112,17 @@ uv run --no-project --python /path/to/prepared/python python -m pytest \
 After this hook change, repeat the seven live runs using the runner above; old
 screenshots obtained without the ElevenLabs reference hook are not evidence for
 the strengthened provider-boundary assertions.
+
+## Live verification on 2026-10-27
+
+All seven configurations passed `test_sequential_requests_ttfb` with independent
+provider reference hooks enabled, retaining the tester upper bound and the
+2 ms reference tolerance. The run used the same prepared container runtime and
+extension sources as the review setup. No assertion was relaxed.
+
+The first attempt exposed two setup defects: empty entries in a second dotenv
+file erased valid credentials, and ByteDance observers lacked the extensions'
+default endpoints. The runner now ignores empty dotenv entries and the registry
+supplies both ByteDance default URLs. All seven passed after these corrections.
+This is a focused live regression run, not a guarantee of future provider
+availability or a full guarder suite result.
