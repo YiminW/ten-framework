@@ -14,6 +14,7 @@ class TTFBReference:
         self.current_request_id = None
         self.sent = {}
         self.received = {}
+        self.pending_events = []
 
     def begin_request(self, request_id):
         with self.lock:
@@ -33,7 +34,17 @@ class TTFBReference:
             if request_id == self.current_request_id and request_id in self.sent:
                 self.received.setdefault(request_id, timestamp)
 
+    def defer_event(self, consumer, raw, timestamp):
+        with self.lock:
+            self.pending_events.append(
+                (consumer, raw, timestamp, self.current_request_id)
+            )
+
     def elapsed_ms(self, request_id):
+        with self.lock:
+            pending, self.pending_events = self.pending_events, []
+        for consumer, raw, timestamp, captured_request_id in pending:
+            consumer(raw, timestamp, captured_request_id)
         with self.lock:
             if request_id not in self.sent or request_id not in self.received:
                 return None

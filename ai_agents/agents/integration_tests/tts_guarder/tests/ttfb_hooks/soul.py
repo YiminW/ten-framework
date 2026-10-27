@@ -34,10 +34,10 @@ def decode_message(raw):
 
 
 class SoulObserver(ConnectionObserver):
-    def text_context(self, raw):
+    def text_context(self, raw, request_id):
         message = decode_message(raw)
         if message.get("event") == "task_continue" and message.get("text", "").strip():
-            return self.reference.current_request()
+            return request_id
         return None
 
     def audio_context(self, raw):

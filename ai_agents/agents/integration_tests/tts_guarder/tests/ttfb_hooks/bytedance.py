@@ -7,7 +7,7 @@ from .base import ConnectionObserver
 
 
 class ByteDanceObserver(ConnectionObserver):
-    def text_context(self, raw):
+    def text_context(self, raw, request_id):
         if not isinstance(raw, bytes) or len(raw) < 8 or raw[1] >> 4 != 1:
             return None
         offset = (raw[0] & 15) * 4
@@ -17,7 +17,7 @@ class ByteDanceObserver(ConnectionObserver):
             payload = gzip.decompress(payload)
         request = json.loads(payload).get("request", {})
         if request.get("text", "").strip():
-            return request.get("reqid") or self.reference.current_request()
+            return request.get("reqid") or request_id
         return None
 
     def audio_context(self, raw):

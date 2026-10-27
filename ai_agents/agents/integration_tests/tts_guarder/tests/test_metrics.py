@@ -449,7 +449,12 @@ class SequentialTTFBTester(AsyncExtensionTester):
                 return
             if self.reference is not None:
                 expected = self.reference.elapsed_ms(request_id)
-                if expected is None or abs(ttfb - expected) > 2:
+                if expected is None or abs(ttfb - expected) > 1:
+                    print(
+                        f"TTFB mismatch: request={request_id}, reported={ttfb}ms, "
+                        f"reference={expected}ms, tolerance=1ms",
+                        flush=True,
+                    )
                     ten_env.stop_test(
                         TenError.create(
                             TenErrorCode.ErrorCodeGeneric,

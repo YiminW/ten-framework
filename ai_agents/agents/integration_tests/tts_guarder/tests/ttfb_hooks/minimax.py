@@ -6,11 +6,11 @@ from .base import ConnectionObserver
 
 
 class MiniMaxObserver(ConnectionObserver):
-    def text_context(self, raw):
+    def text_context(self, raw, request_id):
         message = json.loads(raw)
         if message.get("event") == "task_continue" and message.get("text", "").strip():
             # This protocol has one outstanding text request per connection.
-            return self.reference.current_request()
+            return request_id
         return None
 
     def audio_context(self, raw):

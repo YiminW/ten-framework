@@ -25,7 +25,7 @@ def session_payload(raw, event):
 
 
 class ByteDanceDuplexObserver(ConnectionObserver):
-    def text_context(self, raw):
+    def text_context(self, raw, request_id):
         parsed = session_payload(raw, 200)
         if parsed is not None:
             session, payload = parsed

@@ -7,7 +7,7 @@ from .base import ConnectionObserver
 
 
 class ElevenLabsObserver(ConnectionObserver):
-    def text_context(self, raw):
+    def text_context(self, raw, request_id):
         message = json.loads(raw)
         text = message.get("text", "")
         if message.get("inputs"):

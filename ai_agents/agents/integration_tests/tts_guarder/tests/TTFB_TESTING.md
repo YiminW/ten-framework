@@ -1,7 +1,7 @@
 # Sequential request TTFB verification
 
 As of: 2026-10-27 (Asia/Shanghai, UTC+08:00)
-Codebase commit: `2eb692ce4`
+Codebase commit: `95debb242dd9dcab6728cf0fed122b33c750acba`
 
 ## Scope and assertions
 
@@ -11,7 +11,7 @@ The first request streams text and then ends; after completion, a second request
 contains one final text. Each must emit audio, finish, and report one TTFB.
 Reported TTFB must be nonnegative and no larger than tester send-to-first-audio
 elapsed time. All seven configurations now install independent provider hooks and require
-agreement within 2 ms. Unknown extensions remain explicitly unsupported; they
+agreement within 1 ms. Unknown extensions remain explicitly unsupported; they
 only receive the tester bound.
 
 These are live provider tests. They require valid credentials and may consume
@@ -86,10 +86,13 @@ It reuses `timing_hooks/transport.py`, which remains compatible with the subtitl
 observers. TTFB does not read production timing fields or call production
 protocol decoders.
 
-Each matched connection gets its own observer. It captures a monotonic timestamp
-before decoding sent/received frames, excludes whitespace-only input, control
-messages and empty audio, and retains the first timestamp across subsequent
-chunks. ElevenLabs context IDs and ByteDance duplex session IDs associate audio
+Each matched connection gets its own observer. Its send/receive callbacks only
+queue raw frames, monotonic timestamps and the tester request ID at capture.
+When the tester reads the reference, queued events are decoded in capture order.
+This keeps JSON, gzip and audio decoding off the production send/receive path.
+The observer excludes whitespace-only input, control messages and empty audio,
+and retains the first timestamp across subsequent chunks. Delayed parsing uses
+the original capture time, never the later parsing time. ElevenLabs context IDs and ByteDance duplex session IDs associate audio
 with the request that sent text. Standard ByteDance, MiniMax and Soul serialize
 requests on a connection; their audio references follow the active text request
 on that connection because the wire protocol does not provide an application
@@ -128,3 +131,21 @@ default endpoints. The runner now ignores empty dotenv entries and the registry
 supplies both ByteDance default URLs. All seven passed after these corrections.
 This is a focused live regression run, not a guarantee of future provider
 availability or a full guarder suite result.
+
+## 1 ms verification
+
+As of: 2026-10-27 (Asia/Shanghai, UTC+08:00)
+
+With synchronous parsing, ElevenLabs TTS exceeded 1 ms partly because the hook
+itself decoded audio before returning it to production code. Soul also produced
+a 1.001394 ms mismatch. Protocol recognition is now deferred for all seven modes,
+including outgoing messages; captured request IDs preserve association while
+processing events later. The threshold is 1 ms, without changing the tester
+upper bound or production adapters.
+
+All seven live sequential-request TTFB cases passed with this implementation.
+All 43 local protocol/transport/subtitle hook tests passed, including deferred
+parsing, original arrival times, context filtering and reading an earlier
+request while events from the next request are pending. These results supersede
+the earlier 2 ms run for the current implementation; one passing live run does
+not guarantee arbitrary scheduling delays will stay within 1 ms.

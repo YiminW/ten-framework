@@ -190,3 +190,73 @@ async def test_hook_installs_on_transport_and_restores(
                 assert elapsed is not None and elapsed >= 15
         assert module.websockets is original
     assert observed == [outgoing]
+
+
+@pytest.mark.parametrize(
+    "mode,observer_class",
+    [
+        ("tts", ElevenLabsObserver),
+        ("ttd", ElevenLabsObserver),
+        ("bytedance", ByteDanceObserver),
+        ("bytedance-duplex", ByteDanceDuplexObserver),
+        ("minimax", MiniMaxObserver),
+        ("minimax-duplex", MiniMaxObserver),
+        ("soul", SoulObserver),
+    ],
+)
+def test_hook_defers_decode_and_retains_first_audio_arrival(
+    monkeypatch, mode, observer_class
+):
+    now = [0]
+    monkeypatch.setattr("tests.ttfb_hooks.base.time.monotonic_ns", lambda: now[0])
+    reference = TTFBReference()
+    observer = observer_class(reference)
+    reference.begin_request("request")
+    original_send = observer.text_context
+    parsed_sends = []
+
+    def decode_send(raw, request_id):
+        parsed_sends.append(raw)
+        return original_send(raw, request_id)
+
+    monkeypatch.setattr(observer, "text_context", decode_send)
+    observer.observe_send(wire(mode, "request"))
+    original = observer.audio_context
+    parsed = []
+
+    def decode(raw):
+        parsed.append(raw)
+        return original(raw)
+
+    monkeypatch.setattr(observer, "audio_context", decode)
+    now[0] = 5_000_000
+    observer.observe_receive(wire(mode, "request", audio=True, empty=True))
+    now[0] = 20_000_000
+    observer.observe_receive(wire(mode, "request", audio=True))
+    now[0] = 50_000_000
+    observer.observe_receive(wire(mode, "request", audio=True))
+    assert parsed == []
+    assert parsed_sends == []
+    now[0] = 100_000_000  # Reference is inspected much later than audio arrival.
+    assert reference.elapsed_ms("request") == 20
+    assert len(parsed) == 3
+    assert len(parsed_sends) == 1
+    assert reference.elapsed_ms("request") == 20
+    assert len(parsed) == 3  # Each queued frame is decoded once.
+
+
+def test_reading_previous_request_does_not_return_pending_request(monkeypatch):
+    now = [0]
+    monkeypatch.setattr("tests.ttfb_hooks.base.time.monotonic_ns", lambda: now[0])
+    reference = TTFBReference()
+    observer = ElevenLabsObserver(reference)
+    reference.begin_request("first")
+    observer.observe_send(wire("tts", "first"))
+    now[0] = 20_000_000
+    observer.observe_receive(wire("tts", "first", audio=True))
+    assert reference.elapsed_ms("first") == 20
+    reference.begin_request("second")
+    now[0] = 100_000_000
+    observer.observe_send(wire("tts", "second"))
+    assert reference.elapsed_ms("first") == 20
+    assert reference.elapsed_ms("second") is None
