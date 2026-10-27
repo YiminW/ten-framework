@@ -1,7 +1,7 @@
 # Sequential request TTFB verification
 
 As of: 2026-10-27 (Asia/Shanghai, UTC+08:00)
-Codebase commit: `a452b6d9ed66f9c57fa1d4a80cf5f3473f61b170`
+Codebase commit: `2eb692ce4`
 
 ## Scope and assertions
 
@@ -10,9 +10,9 @@ ElevenLabs TTS/TTD, ByteDance standard/duplex, MiniMax standard/duplex, and Soul
 The first request streams text and then ends; after completion, a second request
 contains one final text. Each must emit audio, finish, and report one TTFB.
 Reported TTFB must be nonnegative and no larger than tester send-to-first-audio
-elapsed time. Supported provider observers also require agreement within 2 ms.
-An unsupported observer is recorded as unsupported; it is not independent
-provider-boundary verification. ElevenLabs currently uses the tester bound.
+elapsed time. All seven configurations now install independent provider hooks and require
+agreement within 2 ms. Unknown extensions remain explicitly unsupported; they
+only receive the tester bound.
 
 These are live provider tests. They require valid credentials and may consume
 provider quota. They are different from the deterministic delayed-connection
@@ -73,3 +73,42 @@ and source/configuration paths for review screenshots. Keep the accompanying
 `summary.txt`, `results.json`, per-case pytest logs and JUnit XML for diagnosis.
 Logs may include credentials from provider configuration; inspect and redact
 before sharing. Do not screenshot raw debug logs.
+
+## TTFB hook contract
+
+Protocol observers are under `tests/ttfb_hooks/`: ElevenLabs (TTS/TTD),
+ByteDance, ByteDance duplex, MiniMax (standard/duplex), and Soul. The installer
+in `ttfb_reference.py` chooses the implementation and endpoint, resolves URL
+environment placeholders, and restores the client dependency after the test.
+It reuses `timing_hooks/transport.py`, which remains compatible with the subtitle
+observers. TTFB does not read production timing fields or call production
+protocol decoders.
+
+Each matched connection gets its own observer. It captures a monotonic timestamp
+before decoding sent/received frames, excludes whitespace-only input, control
+messages and empty audio, and retains the first timestamp across subsequent
+chunks. ElevenLabs context IDs and ByteDance duplex session IDs associate audio
+with the request that sent text. Standard ByteDance, MiniMax and Soul serialize
+requests on a connection; their audio references follow the active text request
+on that connection because the wire protocol does not provide an application
+request ID for every audio frame. Frames from an old connection cannot complete
+a new request's interval. This does not prove arbitrary interleaved requests
+without wire identity are distinguishable.
+
+When adding a vendor, implement `text_context(raw)` and `audio_context(raw)` in
+its observer, register the module/class/endpoint in `HOOKS`, and add wire-fixture
+and local WebSocket tests. The existing tests cover all seven modes, two request
+IDs, empty payloads, repeated chunks, context mismatch, real transport wrapping
+and restoration. Soul also covers JSON and gzip gateway envelopes. Run the local
+mock targets in a prepared guarder app (no provider requests):
+
+```bash
+uv run --no-project --python /path/to/prepared/python python -m pytest \
+  tests/test_ttfb_hooks.py tests/test_soul_ttfb_reference.py tests/test_timing_hooks.py \
+  --extension_name soul_tts_python --config_dir /path/to/private-configs/soul_tts_python \
+  -q --tb=short
+```
+
+After this hook change, repeat the seven live runs using the runner above; old
+screenshots obtained without the ElevenLabs reference hook are not evidence for
+the strengthened provider-boundary assertions.

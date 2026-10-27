@@ -6,7 +6,8 @@ import struct
 
 import pytest
 
-from .ttfb_reference import TTFBReference, WebSocketReference
+from .ttfb_reference import TTFBReference
+from .ttfb_hooks.soul import SoulObserver
 
 
 def gateway_frame(body, compressed=False):
@@ -33,9 +34,9 @@ def gateway_frame(body, compressed=False):
 @pytest.mark.parametrize("wire_format", ["json", "gateway", "gzip"])
 def test_soul_reference_excludes_control_and_empty_audio(monkeypatch, wire_format):
     clock = [0]
-    monkeypatch.setattr("tests.ttfb_reference.time.monotonic_ns", lambda: clock[0])
+    monkeypatch.setattr("tests.ttfb_hooks.base.time.monotonic_ns", lambda: clock[0])
     reference = TTFBReference()
-    observer = WebSocketReference("soul_tts_python", reference)
+    observer = SoulObserver(reference)
 
     def frame(body):
         return (
