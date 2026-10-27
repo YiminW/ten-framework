@@ -46,7 +46,9 @@ def main():
     parser.add_argument("--env-file", type=Path, action="append", default=[])
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--collect-only", action="store_true")
+    parser.add_argument("--case", choices=list(CASES), help="Run only this configuration")
     args = parser.parse_args()
+    cases = {args.case: CASES[args.case]} if args.case else CASES
     env = os.environ.copy()
     if args.env_file:
         from dotenv import dotenv_values
@@ -64,7 +66,7 @@ def main():
         if not (system / package).is_dir():
             parser.error(f"Prepared package missing: {system / package}")
     manifests = {}
-    for label, name in CASES.items():
+    for label, name in cases.items():
         path = config_root / label / "property_basic_audio_setting1.json"
         if not path.is_file():
             parser.error(f"Configuration missing: {path}")
@@ -141,7 +143,7 @@ def main():
             + os.pathsep
             + env.get("PYTHONPATH", "")
         )
-        for label, name in CASES.items():
+        for label, name in cases.items():
             print(f"\n=== {label} | test_sequential_requests_ttfb ===", flush=True)
             command = [
                 "uv",

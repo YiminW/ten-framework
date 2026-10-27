@@ -62,7 +62,9 @@ uv run --no-project --python /path/to/prepared/python python \
 ```
 
 Repeat `--env-file` to load multiple dotenv files; later nonempty values
-override earlier ones. Empty template entries do not erase existing values. Use `--collect-only` first to validate the seven test invocations without
+override earlier ones. Empty template entries do not erase existing values. Use `--case elevenlabs-tts` (or another case folder name listed above) to run
+one configuration and capture its own screenshot. Omit it to run all seven.
+Use `--collect-only` first to validate the seven test invocations without
 calling providers. Collection is labeled COLLECTED, never PASS.
 
 The runner creates an isolated temporary app using the specified packages and
