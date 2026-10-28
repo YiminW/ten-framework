@@ -149,3 +149,35 @@ parsing, original arrival times, context filtering and reading an earlier
 request while events from the next request are pending. These results supersede
 the earlier 2 ms run for the current implementation; one passing live run does
 not guarantee arbitrary scheduling delays will stay within 1 ms.
+
+## Single-extension setup compatibility
+
+As of: 2026-10-28 (Asia/Shanghai, UTC+08:00)
+Codebase commit: `974517a11608f26b5a29aa29175833c31683f230`
+
+Transport utility tests install minimal module/config doubles rather than
+importing vendor implementations. They run their coroutines with asyncio.run,
+so pytest-asyncio is not required; if websockets itself is absent, only those
+local WebSocket fixtures skip. Protocol-only fixtures need no installed vendor
+SDK. Endpoint contract tests run only for the selected extension_name, and
+skip other vendors without importing them.
+
+The live observer resolves environment placeholders, instantiates the selected
+installed extension's configuration, and calls its normal default/parameter
+normalization (without credential validation). It reads the resulting uri,
+api_url or url. ElevenLabs also applies its initialization defaults and uses
+its normalized base_url when no direct URL is supplied. This shares endpoint
+configuration rules only: production timing state and response decoding are
+still independent. Tests cover uri/params.uri, top-level versus nested endpoint
+precedence, environment substitution and defaults.
+
+Container verification prepared six apps, each exposing only one vendor
+extension, and ran the protocol, transport and selected endpoint tests with
+`-p no:asyncio --strict-markers`. All six passed. This verifies the new offline
+targets under the standard single-extension installation shape; it is not a
+claim that the full live guarder suite was run for every vendor.
+
+After these changes, all seven live sequential-request TTFB configurations also
+passed with the independent reference enabled and the existing 1 ms tolerance.
+The endpoint checks and single-extension installation checks are separate from
+that live result: the live verification app supplies all selected packages.

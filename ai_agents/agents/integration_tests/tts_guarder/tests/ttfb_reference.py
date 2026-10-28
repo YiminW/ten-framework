@@ -91,20 +91,36 @@ HOOKS = {
 }
 
 
-def resolve_url(config, default):
-    params = config.get("params") or {}
-    url = (
-        config.get("url")
-        or config.get("api_url")
-        or config.get("base_url")
-        or params.get("url")
-        or params.get("api_url")
-        or params.get("base_url")
-    )
-    if url and url.startswith("${env:") and url.endswith("}"):
-        variable, _, fallback = url[6:-1].partition("|")
-        url = os.environ.get(variable, fallback)
-    return url or default
+CONFIGS = {
+    "bytedance_tts": ("TTSConfig", "uri"),
+    "bytedance_tts_duplex": ("BytedanceTTSDuplexConfig", "api_url"),
+    "elevenlabs_multiple_context_tts_python": ("ElevenLabsTTSConfig", "url"),
+    "minimax_tts_websocket": ("MinimaxTTSWebsocketConfig", "url"),
+    "minimax_tts_websocket_duplex": ("MinimaxTTSWebsocketDuplexConfig", "url"),
+    "soul_tts_python": ("SoulTTSWebsocketConfig", "url"),
+}
+
+
+def resolve_environment(value):
+    if isinstance(value, dict):
+        return {key: resolve_environment(item) for key, item in value.items()}
+    if isinstance(value, list):
+        return [resolve_environment(item) for item in value]
+    if isinstance(value, str) and value.startswith("${env:") and value.endswith("}"):
+        variable, _, fallback = value[6:-1].partition("|")
+        return os.environ.get(variable, fallback)
+    return value
+
+
+def effective_config(extension_name, config):
+    """Reuse installed config normalization, never production timing/decoding."""
+    module = import_module(f"ten_packages.extension.{extension_name}.config")
+    class_name, field = CONFIGS[extension_name]
+    normalized = getattr(module, class_name)(**resolve_environment(config))
+    if extension_name == "elevenlabs_multiple_context_tts_python":
+        normalized.apply_defaults()
+    normalized.update_params()
+    return module, normalized, getattr(normalized, field)
 
 
 @contextmanager
@@ -115,14 +131,11 @@ def install_ttfb_reference(extension_name, config, monkeypatch):
         yield None
         return
     hook_module, hook_class, filename, default = spec
+    config_module, normalized, url = effective_config(extension_name, config)
     if extension_name == "elevenlabs_multiple_context_tts_python":
-        config_module = import_module(f"ten_packages.extension.{extension_name}.config")
-        model = (config.get("params") or {}).get("model_id") or config.get(
-            "model_id", ""
-        )
-        if config_module.uses_ttd_protocol(model):
+        if config_module.uses_ttd_protocol(normalized.model_id):
             filename = "elevenlabs_ttd"
-    url = resolve_url(config, default)
+        url = url or normalized.params.get("base_url") or default
     if not url:
         raise ValueError(f"No provider URL for supported TTFB hook: {extension_name}")
     module = import_module(f"ten_packages.extension.{extension_name}.{filename}")

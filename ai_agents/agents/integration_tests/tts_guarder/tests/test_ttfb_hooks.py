@@ -133,7 +133,6 @@ def test_context_does_not_cross_requests(monkeypatch, mode, observer_class):
     assert reference.elapsed_ms("new") == 20
 
 
-@pytest.mark.asyncio
 @pytest.mark.parametrize(
     "mode,extension,filename",
     [
@@ -146,13 +145,22 @@ def test_context_does_not_cross_requests(monkeypatch, mode, observer_class):
         ("soul", "soul_tts_python", "soul_tts"),
     ],
 )
-async def test_hook_installs_on_transport_and_restores(
+def test_hook_installs_on_transport_and_restores(
     monkeypatch, mode, extension, filename
 ):
     import asyncio
-    from importlib import import_module
 
-    import websockets
+    asyncio.run(_transport_scenario(monkeypatch, mode, extension, filename))
+
+
+async def _transport_scenario(monkeypatch, mode, extension, filename):
+    import asyncio
+    import sys
+    from types import ModuleType
+
+    websockets = pytest.importorskip(
+        "websockets", reason="local WebSocket transport fixture"
+    )
 
     from .ttfb_reference import install_ttfb_reference
 
@@ -172,7 +180,32 @@ async def test_hook_installs_on_transport_and_restores(
         port = server.sockets[0].getsockname()[1]
         url = f"ws://127.0.0.1:{port}/test"
         model = "eleven_v4" if mode == "ttd" else "eleven_flash_v2_5"
-        module = import_module(f"ten_packages.extension.{extension}.{filename}")
+        # The installer only needs a dependency binding and config contract.
+        # No vendor package/SDK is required by these transport utility tests.
+        module_name = f"ten_packages.extension.{extension}.{filename}"
+        module = ModuleType(module_name)
+        module.websockets = websockets
+        config_module = ModuleType(f"ten_packages.extension.{extension}.config")
+        from .ttfb_reference import CONFIGS
+
+        class Config:
+            def __init__(self, **values):
+                self.url = values["url"]
+                self.uri = self.url
+                self.api_url = self.url
+                self.model_id = values["params"]["model_id"]
+                self.params = values["params"]
+
+            def apply_defaults(self):
+                pass
+
+            def update_params(self):
+                pass
+
+        setattr(config_module, CONFIGS[extension][0], Config)
+        config_module.uses_ttd_protocol = lambda model: model == "eleven_v4"
+        monkeypatch.setitem(sys.modules, module_name, module)
+        monkeypatch.setitem(sys.modules, config_module.__name__, config_module)
         original = module.websockets
         with install_ttfb_reference(
             extension, {"url": url, "params": {"model_id": model}}, monkeypatch
